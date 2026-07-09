@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document id="doc1">
+    <name>Simple Sample</name>
+    <Style id="redLine">
+      <LineStyle>
+        <color>ff0000ff</color>
+        <width>3</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>7f0000ff</color>
+        <fill>1</fill>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Folder>
+      <name>Points</name>
+      <Placemark>
+        <name>Origin</name>
+        <description>A point at the origin</description>
+        <Point>
+          <coordinates>-122.0822,37.4222,0</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Shapes</name>
+      <Placemark>
+        <name>A line</name>
+        <styleUrl>#redLine</styleUrl>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-122.1,37.4 -122.0,37.5 -121.9,37.4</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>A polygon</name>
+        <styleUrl>#redLine</styleUrl>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>-122.2,37.3 -122.0,37.3 -122.0,37.5 -122.2,37.5 -122.2,37.3</coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

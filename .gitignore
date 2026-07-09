@@ -1,0 +1,45 @@
+# Secrets / local env
+.envrc
+.env
+.env.local
+*.local
+
+# App settings that may contain API keys
+settings.json
+
+# Private test fixtures (real-world KMLs)
+test/fixtures/private/
+# Generated perf fixtures (recreated by test helpers)
+test/fixtures/big-*.kml
+
+# Generated tile caches / scratch
+tiles/
+*.tmp
+
+# Node / build
+node_modules/
+dist/
+out/
+build/
+release/
+.vite/
+*.tsbuildinfo
+
+# Electron packaging
+*.dmg
+*.AppImage
+*.exe
+*.nsis
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+PLAN.md

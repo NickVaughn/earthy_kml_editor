@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+  <Document>
+    <name>Extensions &amp; CDATA</name>
+    <atom:author>
+      <atom:name>Jane Mapper</atom:name>
+    </atom:author>
+    <Placemark>
+      <name>Rich balloon</name>
+      <description><![CDATA[<h1>Hello</h1><p>Some <b>HTML</b> &amp; entities.</p>]]></description>
+      <ExtendedData>
+        <Data name="population">
+          <value>12345</value>
+        </Data>
+        <Data name="region">
+          <value>West</value>
+        </Data>
+      </ExtendedData>
+      <Point>
+        <coordinates>-95.0,39.0,100</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>A gx track</name>
+      <gx:Track>
+        <when>2020-01-01T00:00:00Z</when>
+        <when>2020-01-01T00:01:00Z</when>
+        <gx:coord>-95.0 39.0 0</gx:coord>
+        <gx:coord>-95.1 39.1 0</gx:coord>
+      </gx:Track>
+    </Placemark>
+    <Placemark>
+      <name>Point with region</name>
+      <Region>
+        <LatLonAltBox>
+          <north>40</north>
+          <south>39</south>
+          <east>-94</east>
+          <west>-95</west>
+        </LatLonAltBox>
+        <Lod>
+          <minLodPixels>128</minLodPixels>
+        </Lod>
+      </Region>
+      <Point>
+        <coordinates>-94.5,39.5</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>

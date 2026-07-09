@@ -1,0 +1,45 @@
+{
+  "name": "nge",
+  "version": "0.1.0",
+  "description": "NGE — a lean cross-platform desktop KML viewer/editor (Non-Google Earth)",
+  "main": "out/main/index.js",
+  "author": "NickVaughn",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "postinstall": "electron-builder install-app-deps",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "make": "npm run build && electron-builder --mac dmg --config electron-builder.yml"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.6",
+    "electron-store": "^8.2.0",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "cesium": "^1.124.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "eslint": "^8.57.1",
+    "react": "^18.3.1",
+    "react-arborist": "^3.4.0",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vite-plugin-static-copy": "^2.3.2",
+    "vitest": "^2.1.8",
+    "zustand": "^5.0.2"
+  }
+}

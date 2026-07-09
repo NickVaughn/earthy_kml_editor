@@ -1,0 +1,26 @@
+appId: us.jettnet.nge
+productName: NGE
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  category: public.app-category.utilities
+  target:
+    - dmg
+  identity: null # no code signing for local builds
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+fileAssociations:
+  - ext: kml
+    name: KML Document
+    role: Editor
+  - ext: kmz
+    name: KMZ Document
+    role: Editor

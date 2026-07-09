@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Styles Torture</name>
+    <Style id="normalPoint">
+      <IconStyle>
+        <color>ff00ff00</color>
+        <scale>1.2</scale>
+        <Icon>
+          <href>http://maps.google.com/mapfiles/kml/pushpin/grn-pushpin.png</href>
+        </Icon>
+      </IconStyle>
+      <LabelStyle>
+        <color>ffffffff</color>
+        <scale>0.8</scale>
+      </LabelStyle>
+    </Style>
+    <Style id="highlightPoint">
+      <IconStyle>
+        <color>ff0000ff</color>
+        <scale>1.5</scale>
+        <Icon>
+          <href>http://maps.google.com/mapfiles/kml/pushpin/red-pushpin.png</href>
+        </Icon>
+      </IconStyle>
+    </Style>
+    <StyleMap id="pointPair">
+      <Pair>
+        <key>normal</key>
+        <styleUrl>#normalPoint</styleUrl>
+      </Pair>
+      <Pair>
+        <key>highlight</key>
+        <styleUrl>#highlightPoint</styleUrl>
+      </Pair>
+    </StyleMap>
+    <Placemark>
+      <name>Mapped point</name>
+      <styleUrl>#pointPair</styleUrl>
+      <Point>
+        <coordinates>-100.0,40.0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>Inline override</name>
+      <styleUrl>#pointPair</styleUrl>
+      <Style>
+        <IconStyle>
+          <scale>2.0</scale>
+        </IconStyle>
+      </Style>
+      <Point>
+        <coordinates>-101.0,41.0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>Dangling styleUrl</name>
+      <styleUrl>#doesNotExist</styleUrl>
+      <Point>
+        <coordinates>-102.0,42.0</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>
