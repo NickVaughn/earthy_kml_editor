@@ -334,6 +334,74 @@ export class KmlDocument {
     return fresh.map((n) => n.id);
   }
 
+  // ---- geometry creation / editing (Phase 3) -------------------------------
+
+  /**
+   * Add a new placemark with the given geometry under `parentId` (or the nearest
+   * container / root). Returns the new node id.
+   */
+  addPlacemark(
+    parentId: string | null,
+    geometry: Geometry,
+    name = 'New Placemark',
+    styleUrl?: string,
+  ): string {
+    let parent = parentId ? this.nodeById(parentId) : this.data.root;
+    if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
+    if (!parent) parent = this.data.root;
+    const node: KmlNode = {
+      id: nextId(),
+      type: 'Placemark',
+      name,
+      visible: true,
+      children: [],
+      unknownChildren: [],
+      attrs: {},
+      geometry: structuredClone(geometry),
+      styleUrl,
+    };
+    const container = parent;
+    this.structuralEdit('Add Feature', [container.id], () => {
+      container.children.push(node);
+    });
+    return node.id;
+  }
+
+  /** Replace a placemark's geometry (vertex edits, moves). Undoable. */
+  updateGeometry(nodeId: string, geometry: Geometry): void {
+    const node = this.nodeById(nodeId);
+    if (!node) return;
+    const prev = node.geometry ? structuredClone(node.geometry) : undefined;
+    const next = structuredClone(geometry);
+    node.geometry = next;
+    this.pushUndo({
+      label: 'Edit Geometry',
+      undo: () => {
+        node.geometry = prev;
+      },
+      redo: () => {
+        node.geometry = structuredClone(next);
+      },
+    });
+  }
+
+  /** Set a placemark's description (inspector). Undoable. */
+  setDescription(nodeId: string, description: string | undefined): void {
+    const node = this.nodeById(nodeId);
+    if (!node) return;
+    const cdata = node.descriptionCdata;
+    this.propEdit(
+      'Description',
+      () => node.description,
+      (v) => {
+        node.description = v;
+        // A plain edit drops CDATA framing; re-added only if it contains markup.
+        node.descriptionCdata = v ? /[<&]/.test(v) : cdata;
+      },
+      description,
+    );
+  }
+
   // ---- bulk style ----------------------------------------------------------
 
   /**

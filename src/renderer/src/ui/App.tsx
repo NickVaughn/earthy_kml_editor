@@ -3,11 +3,21 @@ import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
+import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
 import { TreePanel } from './TreePanel';
 import { StylePanel } from './StylePanel';
+import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
+
+const MODE_HINT: Record<string, string> = {
+  'draw-point': 'Click on the map to drop a point · Esc to cancel',
+  'draw-line': 'Click to add points · double-click or Enter to finish · Esc to cancel',
+  'draw-polygon': 'Click to add vertices · double-click or Enter to finish · Esc to cancel',
+  edit: 'Drag handles to move · click a midpoint to add · right-click/Delete to remove · Esc when done',
+  measure: 'Click to add points · double-click to finish · Esc to cancel',
+};
 
 export function App(): JSX.Element {
   const globeContainer = useRef<HTMLDivElement>(null);
@@ -91,6 +101,58 @@ export function App(): JSX.Element {
   useEffect(() => {
     window.api.setDirty(store.dirty);
   }, [store.dirty]);
+
+  // ---- interaction mode drives the globe draw/edit tools ------------------
+  const prevModeRef = useRef<string>('none');
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    const mode = store.interactionMode;
+    const prev = prevModeRef.current;
+    prevModeRef.current = mode;
+    const s = () => useStore.getState();
+
+    // Leaving edit mode: rebuild the scene to restore the (hidden) edited feature.
+    if (prev === 'edit' && mode !== 'edit') globe.rebuild();
+
+    if (mode === 'none') {
+      globe.cancelTool();
+      return;
+    }
+    if (mode === 'draw-point' || mode === 'draw-line' || mode === 'draw-polygon') {
+      const kind =
+        mode === 'draw-point' ? 'Point' : mode === 'draw-line' ? 'LineString' : 'Polygon';
+      globe.startDraw(
+        kind,
+        (g) => {
+          s().addPlacemark(g);
+          s().setMode('none');
+        },
+        () => s().setMode('none'),
+      );
+    } else if (mode === 'measure') {
+      globe.startDraw(
+        'LineString',
+        (g) => {
+          const coords = g.kind === 'LineString' ? g.coordinates : [];
+          let text = `Length: ${formatLength(lineLength(coords))}`;
+          if (coords.length >= 3) text += ` · Area: ${formatArea(polygonArea(coords))}`;
+          s().setMeasure(text);
+          s().setMode('none');
+        },
+        () => s().setMode('none'),
+      );
+    } else if (mode === 'edit') {
+      const sel = s().selection;
+      const node = sel.length === 1 ? s().doc.nodeById(sel[0]) : undefined;
+      if (node?.type === 'Placemark' && node.geometry) {
+        globe.startEdit(node.id, (g) => s().updateGeometry(node.id, g));
+      } else {
+        s().setMode('none');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.interactionMode]);
 
   // ---- file operations -----------------------------------------------------
   const guardDiscard = useCallback((): boolean => {
@@ -196,10 +258,23 @@ export function App(): JSX.Element {
             onFlyTo={(id) => globeRef.current?.flyTo(id)}
             onOpenBalloon={(id) => useStore.getState().openBalloon(id)}
           />
+          <Inspector />
           <StylePanel />
         </div>
         <div className="globe-wrap">
           <div ref={globeContainer} className="globe" />
+          {store.interactionMode !== 'none' && (
+            <div className="mode-hint">
+              {MODE_HINT[store.interactionMode]}
+              <button onClick={() => useStore.getState().setMode('none')}>Done</button>
+            </div>
+          )}
+          {store.measureResult && (
+            <div className="measure-readout">
+              {store.measureResult}
+              <button onClick={() => useStore.getState().setMeasure(null)}>✕</button>
+            </div>
+          )}
           {balloonNode && (
             <Balloon
               node={balloonNode}

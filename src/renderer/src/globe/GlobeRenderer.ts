@@ -16,8 +16,10 @@ import {
   defined,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
-import type { Position } from '@renderer/model/types';
+import type { Position, Geometry } from '@renderer/model/types';
 import { buildScene, type SceneHandle } from './scene';
+import { DrawTool, type DrawKind } from './DrawTool';
+import { EditTool } from './EditTool';
 
 export interface GlobeHandlers {
   onPick: (nodeId: string | null) => void;
@@ -34,6 +36,7 @@ export class GlobeRenderer {
   private selectionLayer = new PrimitiveCollection();
   private selLines = new PolylineCollection();
   private selPoints = new PointPrimitiveCollection();
+  private activeTool: { dispose(): void } | null = null;
 
   constructor(container: HTMLElement, handlers: GlobeHandlers) {
     this.viewer = new Viewer(container, {
@@ -80,6 +83,7 @@ export class GlobeRenderer {
     }, ScreenSpaceEventType.MOUSE_MOVE);
 
     this.handler.setInputAction((click: ScreenSpaceEventHandler.PositionedEvent) => {
+      if (this.activeTool) return; // draw/edit tool owns clicks
       const picked = this.viewer.scene.pick(click.position);
       if (defined(picked) && picked.id && typeof picked.id === 'string') {
         handlers.onPick(picked.id);
@@ -166,6 +170,44 @@ export class GlobeRenderer {
       if (!node?.geometry) continue;
       this.drawSelectionGeometry(node.geometry);
     }
+  }
+
+  // ---- draw / edit tools (Phase 3) ----------------------------------------
+
+  get toolActive(): boolean {
+    return this.activeTool !== null;
+  }
+
+  startDraw(kind: DrawKind, onFinish: (g: Geometry) => void, onCancel: () => void): void {
+    this.cancelTool();
+    this.clearSelection();
+    this.activeTool = new DrawTool(
+      this.viewer,
+      kind,
+      (g) => {
+        this.activeTool = null;
+        onFinish(g);
+      },
+      () => {
+        this.activeTool = null;
+        onCancel();
+      },
+    );
+  }
+
+  /** Begin vertex editing of a node's geometry. Hides its batched render. */
+  startEdit(nodeId: string, onCommit: (g: Geometry) => void): void {
+    this.cancelTool();
+    const node = this.doc?.nodeById(nodeId);
+    if (!node?.geometry) return;
+    this.clearSelection();
+    this.scene?.setNodeShow(nodeId, false); // hide static copy while editing
+    this.activeTool = new EditTool(this.viewer, node.geometry, onCommit);
+  }
+
+  cancelTool(): void {
+    this.activeTool?.dispose();
+    this.activeTool = null;
   }
 
   private drawSelectionGeometry(g: import('@renderer/model/types').Geometry): void {

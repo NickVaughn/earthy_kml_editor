@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import { KmlDocument } from '@renderer/model/document';
 import type { StylePatch } from '@renderer/model/bulkStyle';
+import type { Geometry } from '@renderer/model/types';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
+
+export type InteractionMode =
+  | 'none'
+  | 'draw-point'
+  | 'draw-line'
+  | 'draw-polygon'
+  | 'edit'
+  | 'measure';
 
 interface AppState {
   doc: KmlDocument;
@@ -20,6 +29,9 @@ interface AppState {
 
   selection: string[];
   balloonNodeId: string | null;
+
+  interactionMode: InteractionMode;
+  measureResult: string | null;
 
   settings: AppSettings;
   hasGoogleKey: boolean;
@@ -50,6 +62,13 @@ interface AppState {
   applyStyle(patch: StylePatch): { patched: number; created: number };
   undo(): void;
   redo(): void;
+
+  // Phase 3: geometry creation/editing
+  setMode(mode: InteractionMode): void;
+  setMeasure(result: string | null): void;
+  addPlacemark(geometry: Geometry, name?: string): string;
+  updateGeometry(nodeId: string, geometry: Geometry): void;
+  setDescription(nodeId: string, description: string): void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -65,6 +84,9 @@ export const useStore = create<AppState>((set, get) => {
   const bumpVis = () =>
     set((s) => ({ visEpoch: s.visEpoch + 1, revision: s.revision + 1, dirty: true }));
   const bumpView = () => set((s) => ({ revision: s.revision + 1 }));
+  // Metadata/geometry edit: dirty + re-render, but no scene rebuild (the edit
+  // tool renders its own live preview; the scene is rebuilt when editing ends).
+  const bumpMeta = () => set((s) => ({ revision: s.revision + 1, dirty: true }));
 
   return {
     doc: KmlDocument.empty(),
@@ -77,6 +99,8 @@ export const useStore = create<AppState>((set, get) => {
     dirty: false,
     selection: [],
     balloonNodeId: null,
+    interactionMode: 'none',
+    measureResult: null,
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -192,6 +216,31 @@ export const useStore = create<AppState>((set, get) => {
     },
     redo() {
       if (get().doc.redo()) bumpScene();
+    },
+
+    setMode(mode) {
+      set({ interactionMode: mode });
+      // Clear a stale measurement when starting any tool; keep it when returning
+      // to 'none' (so the last result stays on screen after finishing a measure).
+      if (mode !== 'none') set({ measureResult: null });
+    },
+    setMeasure(result) {
+      set({ measureResult: result });
+    },
+    addPlacemark(geometry, name) {
+      const parentId = get().selection[0] ?? null;
+      const id = get().doc.addPlacemark(parentId, geometry, name);
+      set({ selection: [id] });
+      bumpScene();
+      return id;
+    },
+    updateGeometry(nodeId, geometry) {
+      get().doc.updateGeometry(nodeId, geometry);
+      bumpMeta(); // edit tool shows the live preview; no scene rebuild mid-edit
+    },
+    setDescription(nodeId, description) {
+      get().doc.setDescription(nodeId, description);
+      bumpMeta();
     },
   };
 });

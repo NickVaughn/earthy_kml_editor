@@ -92,6 +92,37 @@ Testing against a real 9.7 MB survey KML (`hawaii_may26_campaign.kml`, Schema + 
 - `Writer.raw` re-indented every line of a raw block, so multi-line CDATA (the HTML balloon template) grew indentation each save — broke idempotency. Now indents only the first line.
 - `<open>0</open>` (folder collapsed) was dropped on save (only truthy `open` was emitted), losing folder state. Now emitted whenever defined.
 
+## Phase 3 — Creation & geometry editing ✅
+
+Draw and reshape features directly on the globe.
+
+### Model (`document.ts`, `measure.ts`)
+- `addPlacemark(parentId, geometry, name)` — undoable; adds under the selected container (or nearest container / root).
+- `updateGeometry(nodeId, geometry)` and `setDescription(nodeId, text)` — undoable.
+- `measure.ts` — Cesium-free geodesic helpers: haversine line length, spherical polygon area, formatters. Unit-tested.
+
+### Interaction (`globe/DrawTool.ts`, `globe/EditTool.ts`)
+- **DrawTool:** click to add vertices with a live rubber-band preview (CallbackProperty entities); double-click or Enter finishes; Esc cancels; a Point finishes on the first click. On finish, builds KML geometry and adds a placemark.
+- **EditTool:** draggable vertex handles on the selected feature; midpoint handles to insert a vertex; right-click / Delete to remove; drag the body to move the whole feature. Camera input is suspended during a drag; each gesture commits `updateGeometry` (undoable). The edited feature's static render is hidden while editing and the scene is rebuilt on exit.
+- `GlobeRenderer.startDraw/startEdit/cancelTool`; the normal pick handler yields while a tool is active.
+
+### UI
+- Toolbar tools: Add point / Draw line / Draw polygon / Edit (enabled only for a single selected placemark) / Measure, with active state and a "Done" affordance.
+- Inspector panel (single-placemark selection): edit name + description.
+- On-globe mode hint and a measure readout (length, plus area when ≥3 points).
+- New geometry commits go through the same undo stack; edits don't rebuild the whole scene mid-gesture (the tool renders its own preview; `bumpMeta`).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Model tests (8 new: measurement math, add/update geometry, undo/redo, serialize+reparse) | ✅ 51 total pass |
+| Drawn geometry serializes to valid, reparseable KML | ✅ (unit test) |
+| Typecheck (web + node) + production build | ✅ |
+| Boot with Phase 3 UI | ✅ no runtime errors |
+
+**Not verified headlessly:** the actual pointer interactions (drawing clicks, vertex dragging, midpoint insert). The model + serialization beneath them is unit-tested; drive it manually with `npm run dev`. "Opens identically in Google Earth Pro" (PLAN accept) needs a manual GE check — output is standard KML 2.2 (Point/LineString/Polygon).
+
 ## How to run
 
 - `npm run dev` — dev server + Electron with HMR.
