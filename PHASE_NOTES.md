@@ -49,6 +49,37 @@
 4. Coordinates are normalized on save (`-122.0` → `-122`) via `Number` round-tripping. Semantically identical; note if exact string fidelity of coordinates ever matters.
 5. Shared styles nested inside sub-folders (not the Document) are registered for the resolver but preserved verbatim in place — fine for viewing; Phase 2's style-write path will formalize this.
 
+## Phase 2 — Editing core ✅
+
+The reason the app exists: bulk style editing + native folder management.
+
+### Model
+- **Shared-style refactor (prerequisite):** shared `Style`/`StyleMap` now live in the model (`node.styles`, same object referenced by the resolver map) instead of raw XML, so edits actually serialize. Round-trip tests still green, output is cleaner (no redundant `xmlns` on styles).
+- **Mutation + undo/redo API** on `KmlDocument`: `move` (multi-node, guards against moving into own descendant), `rename`, `createFolder`, `delete`, `setVisibility`, `cut`/`copy`/`paste` (deep clone, fresh ids). Snapshot-based inverse for structural edits, property-inverse for renames/visibility. 200-entry undo stack. O(1) `parentOf` via a parent map.
+- **Bulk `applyStyle`** (`bulkStyle.ts`, PLAN §4.3): selection → descendant placemarks filtered by geometry kind → patch the shared style **in place** when all its users are selected (keeps the file lean — one `<Style>` updated), else **fork** a new shared style for the subset and clear redundant inline. GC of orphaned forks on undo. Precise inverse; redo re-mints ids without leaking.
+
+### UI
+- **Tree** (react-arborist): multi-select (shift/cmd), drag-drop move wired to `doc.move`, inline rename, right-click context menu (New Folder / Rename / Cut / Copy / Paste / Delete), keyboard (Delete, Cmd+C/X/V). Height auto-measured via ResizeObserver so it shares the sidebar with the style panel.
+- **Style panel:** point/line/polygon sections shown by what's in the selection; color + opacity + width + icon scale + preset icons + fill/outline toggles; **indeterminate state** on mixed values; staged edits → one Apply → one undoable bulk op.
+- Undo/redo wired to the Edit menu (Cmd+Z / Shift+Cmd+Z).
+
+### Main
+- **Unsaved-changes guard:** renderer reports dirty via IPC; main intercepts window close with a Discard/Cancel dialog.
+- **External-file watcher:** `fs.watch` on the open file (self-writes suppressed for 1.5 s); on external change, renderer offers reload (warns if there are unsaved edits).
+
+### Phase 2 verification
+
+| Check | Result |
+|---|---|
+| Model tests (11 new: create/rename/move/delete/copy-paste, bulk-style patch/fork/undo/redo) | ✅ 37 total pass |
+| Bulk style on 5,000 features | ✅ ~4 ms, **one shared style**, value applied |
+| Multi-node move reflected after save | ✅ |
+| Undo/redo/undo cycle leaks no styles | ✅ |
+| Typecheck (web + node) + production build | ✅ |
+| Boot with full editing UI, load file | ✅ no runtime errors |
+
+**Not verified headlessly:** live drag-drop and style-panel DOM interactions (need a GUI session or Playwright). Model logic beneath them is unit-tested. Verify manually with `npm run dev`.
+
 ## How to run
 
 - `npm run dev` — dev server + Electron with HMR.

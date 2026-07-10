@@ -122,8 +122,7 @@ export function styleToXml(style: KmlStyle): string {
   return w.toString();
 }
 
-export function styleMapToXml(map: KmlStyleMap): string {
-  const w = new Writer();
+function writeStyleMap(w: Writer, map: KmlStyleMap): void {
   w.open('StyleMap', map.id ? { id: map.id } : undefined);
   for (const pair of map.pairs) {
     w.open('Pair');
@@ -133,6 +132,11 @@ export function styleMapToXml(map: KmlStyleMap): string {
     w.close('Pair');
   }
   w.close('StyleMap');
+}
+
+export function styleMapToXml(map: KmlStyleMap): string {
+  const w = new Writer();
+  writeStyleMap(w, map);
   return w.toString();
 }
 
@@ -203,10 +207,18 @@ function writeNode(w: Writer, node: KmlNode): void {
 
   writeCommonHead(w, node);
 
+  // Shared (id'd) styles defined on this node, emitted from the model.
+  if (node.styles) {
+    for (const entry of node.styles) {
+      if (entry.kind === 'Style') writeStyle(w, entry.style);
+      else writeStyleMap(w, entry.map);
+    }
+  }
+
   if (node.type === 'Placemark') {
     if (node.inlineStyle) writeStyle(w, node.inlineStyle);
     if (node.inlineStyleMap) {
-      w.raw(styleMapToXml(node.inlineStyleMap));
+      writeStyleMap(w, node.inlineStyleMap);
     }
     if (node.extendedData) w.raw(node.extendedData.raw);
     for (const r of node.unknownChildren) w.raw(r);

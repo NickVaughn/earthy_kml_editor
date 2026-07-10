@@ -16,16 +16,13 @@ import type {
   KmlNodeType,
   KmlStyle,
   KmlStyleMap,
+  SharedStyleEntry,
   Geometry,
   Position,
   AltitudeMode,
   IconStyle,
 } from './types';
-
-let idCounter = 0;
-function nextId(): string {
-  return `n${(++idCounter).toString(36)}`;
-}
+import { nextId } from './ids';
 
 const CONTAINER_CHILD_KNOWN = new Set([
   'name',
@@ -255,10 +252,10 @@ function parseContainer(el: Element, doc: KmlDocumentData): KmlNode {
 
   parseCommon(el, node, CONTAINER_CHILD_KNOWN, (c) => {
     const tag = localName(c);
-    // Shared styles/maps: register for the resolver AND keep verbatim in place.
+    // Shared styles/maps live in the model (editable + re-serialized), while
+    // unknown elements are kept verbatim as raw XML.
     if ((tag === 'Style' || tag === 'StyleMap') && c.getAttribute('id')) {
-      registerShared(c, doc);
-      node.unknownChildren.push(serializeStripped(c));
+      (node.styles ??= []).push(registerShared(c, doc));
     } else {
       node.unknownChildren.push(serializeStripped(c));
     }
@@ -295,8 +292,9 @@ function parsePlacemark(el: Element, doc: KmlDocumentData): KmlNode {
   const styleEl = firstChild(el, 'Style');
   if (styleEl && !styleEl.getAttribute('id')) node.inlineStyle = parseStyle(styleEl);
   else if (styleEl) {
-    registerShared(styleEl, doc);
-    node.unknownChildren.push(serializeStripped(styleEl));
+    // An id'd Style inside a Placemark is unusual; register it and keep it on
+    // the node so it round-trips from the model.
+    (node.styles ??= []).push(registerShared(styleEl, doc));
   }
   const styleMapEl = firstChild(el, 'StyleMap');
   if (styleMapEl && !styleMapEl.getAttribute('id'))
@@ -327,12 +325,27 @@ function parseOverlayLike(el: Element): KmlNode {
   };
 }
 
-function registerShared(el: Element, doc: KmlDocumentData): void {
+/**
+ * Parse an id'd Style/StyleMap into the model, register it (same object) in the
+ * document's resolver maps, and return an entry to store on the owning node so
+ * the serializer re-emits it from the model (making it editable).
+ */
+function registerShared(el: Element, doc: KmlDocumentData): SharedStyleEntry {
   const id = el.getAttribute('id');
-  if (!id) return;
-  if (localName(el) === 'Style') doc.sharedStyles.set(id, parseStyle(el));
-  else doc.sharedStyleMaps.set(id, parseStyleMap(el));
-  if (!doc.sharedOrder.includes(id)) doc.sharedOrder.push(id);
+  if (localName(el) === 'Style') {
+    const style = parseStyle(el);
+    if (id) {
+      doc.sharedStyles.set(id, style);
+      if (!doc.sharedOrder.includes(id)) doc.sharedOrder.push(id);
+    }
+    return { kind: 'Style', style };
+  }
+  const map = parseStyleMap(el);
+  if (id) {
+    doc.sharedStyleMaps.set(id, map);
+    if (!doc.sharedOrder.includes(id)) doc.sharedOrder.push(id);
+  }
+  return { kind: 'StyleMap', map };
 }
 
 export function parseKml(text: string): KmlDocumentData {
@@ -384,8 +397,7 @@ export function parseKml(text: string): KmlDocumentData {
       else if (tag === 'Folder') synthetic.children.push(parseContainer(c, doc));
       else if (OVERLAY_TYPES.has(tag)) synthetic.children.push(parseOverlayLike(c));
       else if ((tag === 'Style' || tag === 'StyleMap') && c.getAttribute('id')) {
-        registerShared(c, doc);
-        synthetic.unknownChildren.push(serializeStripped(c));
+        (synthetic.styles ??= []).push(registerShared(c, doc));
       }
     }
     doc.root = synthetic;

@@ -1,8 +1,29 @@
 import { parseKml } from './parse';
 import { serializeKml } from './serialize';
 import { effectiveStyle } from './style';
-import type { KmlDocumentData, KmlNode, KmlStyle } from './types';
+import { nextId } from './ids';
+import { applyBulkStyle, type StylePatch } from './bulkStyle';
+import type { KmlDocumentData, KmlNode, KmlStyle, Geometry } from './types';
 import { CONTAINER_TYPES } from './types';
+
+interface UndoEntry {
+  label: string;
+  undo(): void;
+  redo(): void;
+}
+
+/** Which geometry kinds a style sub-tab applies to. */
+export type StyleTarget = 'icon' | 'label' | 'line' | 'poly';
+
+/** The set of concrete geometry kinds within a geometry (flattening MultiGeometry). */
+function geometryKinds(g: Geometry, into: Set<string> = new Set()): Set<string> {
+  if (g.kind === 'MultiGeometry') {
+    for (const child of g.geometries) geometryKinds(child, into);
+  } else {
+    into.add(g.kind);
+  }
+  return into;
+}
 
 /**
  * The live document model wrapping the parsed data. Phase 1 uses it read-only
@@ -17,6 +38,10 @@ export class KmlDocument {
   dirty = false;
 
   private index = new Map<string, KmlNode>();
+  private parents = new Map<string, KmlNode | null>();
+  private undoStack: UndoEntry[] = [];
+  private redoStack: UndoEntry[] = [];
+  private clipboard: KmlNode[] = [];
 
   constructor(data: KmlDocumentData) {
     this.data = data;
@@ -47,11 +72,13 @@ export class KmlDocument {
 
   reindex(): void {
     this.index.clear();
-    const walk = (n: KmlNode) => {
+    this.parents.clear();
+    const walk = (n: KmlNode, parent: KmlNode | null) => {
       this.index.set(n.id, n);
-      for (const c of n.children) walk(c);
+      this.parents.set(n.id, parent);
+      for (const c of n.children) walk(c, n);
     };
-    walk(this.data.root);
+    walk(this.data.root, null);
   }
 
   get root(): KmlNode {
@@ -107,10 +134,261 @@ export class KmlDocument {
   }
 
   parentOf(id: string): KmlNode | null {
-    for (const n of this.walk()) {
-      if (n.children.some((c) => c.id === id)) return n;
+    return this.parents.get(id) ?? null;
+  }
+
+  // ---- undo / redo ---------------------------------------------------------
+
+  get canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+  get canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+  get undoLabel(): string | null {
+    return this.undoStack.at(-1)?.label ?? null;
+  }
+
+  private pushUndo(entry: UndoEntry): void {
+    this.undoStack.push(entry);
+    if (this.undoStack.length > 200) this.undoStack.shift();
+    this.redoStack = [];
+    this.dirty = true;
+  }
+
+  undo(): boolean {
+    const entry = this.undoStack.pop();
+    if (!entry) return false;
+    entry.undo();
+    this.redoStack.push(entry);
+    this.reindex();
+    this.dirty = true;
+    return true;
+  }
+
+  redo(): boolean {
+    const entry = this.redoStack.pop();
+    if (!entry) return false;
+    entry.redo();
+    this.undoStack.push(entry);
+    this.reindex();
+    this.dirty = true;
+    return true;
+  }
+
+  /** Structural edit: snapshot affected containers' children before/after. */
+  private structuralEdit(
+    label: string,
+    containerIds: string[],
+    mutate: () => void,
+  ): void {
+    const ids = [...new Set(containerIds)];
+    const snap = (): Map<string, KmlNode[]> =>
+      new Map(ids.map((id) => [id, [...(this.nodeById(id)?.children ?? [])]]));
+    const before = snap();
+    mutate();
+    const after = snap();
+    const restore = (state: Map<string, KmlNode[]>) => {
+      for (const [id, arr] of state) {
+        const node = this.nodeById(id);
+        if (node) node.children = [...arr];
+      }
+    };
+    this.pushUndo({ label, undo: () => restore(before), redo: () => restore(after) });
+    this.reindex();
+  }
+
+  private propEdit<T>(label: string, get: () => T, set: (v: T) => void, next: T): void {
+    const prev = get();
+    this.pushUndo({ label, undo: () => set(prev), redo: () => set(next) });
+    set(next);
+  }
+
+  // ---- structural mutations ------------------------------------------------
+
+  /** True if `maybeAncestor` is the same node as, or an ancestor of, `node`. */
+  private isAncestorOrSelf(maybeAncestor: KmlNode, node: KmlNode): boolean {
+    const path = this.pathTo(node.id);
+    return path ? path.includes(maybeAncestor) : false;
+  }
+
+  createFolder(parentId: string, index?: number, name = 'New Folder'): KmlNode | null {
+    const parent = this.nodeById(parentId);
+    if (!parent || !this.isContainer(parent)) return null;
+    const folder: KmlNode = {
+      id: nextId(),
+      type: 'Folder',
+      name,
+      visible: true,
+      open: true,
+      children: [],
+      unknownChildren: [],
+      attrs: {},
+    };
+    const at = index ?? parent.children.length;
+    this.structuralEdit('New Folder', [parentId], () => {
+      parent.children.splice(at, 0, folder);
+    });
+    return folder;
+  }
+
+  rename(id: string, name: string): void {
+    const node = this.nodeById(id);
+    if (!node) return;
+    this.propEdit('Rename', () => node.name, (v) => (node.name = v), name);
+  }
+
+  setVisibility(id: string, visible: boolean): void {
+    const node = this.nodeById(id);
+    if (!node) return;
+    this.propEdit('Visibility', () => node.visible, (v) => (node.visible = v), visible);
+  }
+
+  delete(ids: string[]): void {
+    const nodes = ids
+      .map((id) => this.nodeById(id))
+      .filter((n): n is KmlNode => !!n && n !== this.data.root);
+    if (nodes.length === 0) return;
+    const parents = nodes
+      .map((n) => this.parentOf(n.id))
+      .filter((p): p is KmlNode => !!p);
+    this.structuralEdit('Delete', parents.map((p) => p.id), () => {
+      for (const n of nodes) {
+        const p = this.parentOf(n.id);
+        if (!p) continue;
+        const i = p.children.indexOf(n);
+        if (i >= 0) p.children.splice(i, 1);
+      }
+    });
+  }
+
+  /**
+   * Move nodes into `targetId` at `index`. Nodes that would move into their own
+   * subtree are skipped. Returns the ids actually moved.
+   */
+  move(ids: string[], targetId: string, index?: number): string[] {
+    const target = this.nodeById(targetId);
+    if (!target || !this.isContainer(target)) return [];
+    const nodes = ids
+      .map((id) => this.nodeById(id))
+      .filter((n): n is KmlNode => !!n && n !== this.data.root)
+      .filter((n) => !this.isAncestorOrSelf(n, target));
+    if (nodes.length === 0) return [];
+
+    const affected = new Set<string>([targetId]);
+    for (const n of nodes) {
+      const p = this.parentOf(n.id);
+      if (p) affected.add(p.id);
     }
-    return null;
+
+    this.structuralEdit('Move', [...affected], () => {
+      for (const n of nodes) {
+        const p = this.parentOf(n.id);
+        if (!p) continue;
+        const i = p.children.indexOf(n);
+        if (i >= 0) p.children.splice(i, 1);
+      }
+      const at = Math.max(0, Math.min(index ?? target.children.length, target.children.length));
+      target.children.splice(at, 0, ...nodes);
+    });
+    return nodes.map((n) => n.id);
+  }
+
+  // ---- clipboard -----------------------------------------------------------
+
+  private cloneSubtree(node: KmlNode): KmlNode {
+    const clone = structuredClone(node);
+    const reid = (n: KmlNode) => {
+      n.id = nextId();
+      for (const c of n.children) reid(c);
+    };
+    reid(clone);
+    return clone;
+  }
+
+  copy(ids: string[]): void {
+    this.clipboard = ids
+      .map((id) => this.nodeById(id))
+      .filter((n): n is KmlNode => !!n && n !== this.data.root)
+      .map((n) => this.cloneSubtree(n));
+  }
+
+  cut(ids: string[]): void {
+    this.copy(ids);
+    this.delete(ids);
+  }
+
+  get clipboardSize(): number {
+    return this.clipboard.length;
+  }
+
+  paste(targetId: string, index?: number): string[] {
+    const target = this.nodeById(targetId);
+    if (!target || !this.isContainer(target) || this.clipboard.length === 0) return [];
+    // Clone again so repeated pastes get fresh ids.
+    const fresh = this.clipboard.map((n) => this.cloneSubtree(n));
+    const at = index ?? target.children.length;
+    this.structuralEdit('Paste', [targetId], () => {
+      target.children.splice(at, 0, ...fresh);
+    });
+    return fresh.map((n) => n.id);
+  }
+
+  // ---- bulk style ----------------------------------------------------------
+
+  /**
+   * Resolve a tree selection to the placemarks a style patch should touch:
+   * containers expand to descendant placemarks, filtered by which geometry
+   * kinds the patched sub-styles apply to.
+   */
+  styleTargets(selectionIds: string[], subs: StyleTarget[]): KmlNode[] {
+    const wantsPoint = subs.includes('icon') || subs.includes('label');
+    const wantsLine = subs.includes('line');
+    const wantsPoly = subs.includes('poly');
+    const keep = (n: KmlNode): boolean => {
+      if (n.type !== 'Placemark' || !n.geometry) return false;
+      const kinds = geometryKinds(n.geometry);
+      if (subs.includes('label')) return true; // labels apply to anything named
+      if (wantsPoint && kinds.has('Point')) return true;
+      if (wantsLine && (kinds.has('LineString') || kinds.has('Polygon'))) return true;
+      if (wantsPoly && kinds.has('Polygon')) return true;
+      return false;
+    };
+    const out: KmlNode[] = [];
+    const seen = new Set<string>();
+    for (const id of selectionIds) {
+      const node = this.nodeById(id);
+      if (!node) continue;
+      for (const n of this.walk(node)) {
+        if (keep(n) && !seen.has(n.id)) {
+          seen.add(n.id);
+          out.push(n);
+        }
+      }
+    }
+    return out;
+  }
+
+  applyStyle(selectionIds: string[], patch: StylePatch): { patched: number; created: number } {
+    const subs = (['icon', 'label', 'line', 'poly'] as StyleTarget[]).filter(
+      (k) => patch[k],
+    );
+    if (this.styleTargets(selectionIds, subs).length === 0) {
+      return { patched: 0, created: 0 };
+    }
+    const run = () =>
+      applyBulkStyle(this.data, this.styleTargets(selectionIds, subs), patch);
+    const first = run();
+    // redo re-runs the op (minting fresh fork ids), so keep the inverse current.
+    let inverse = first.undo;
+    this.pushUndo({
+      label: 'Style',
+      undo: () => inverse(),
+      redo: () => {
+        inverse = run().undo;
+      },
+    });
+    return { patched: first.patched, created: first.created };
   }
 
   serialize(): string {

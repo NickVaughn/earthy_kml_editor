@@ -23,6 +23,12 @@ const api: Api = {
     ipcRenderer.on('menu-action', listener);
     return () => ipcRenderer.removeListener('menu-action', listener);
   },
+  setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
+  onFileChanged: (cb) => {
+    const listener = (_e: unknown, path: string) => cb(path);
+    ipcRenderer.on('file-externally-changed', listener);
+    return () => ipcRenderer.removeListener('file-externally-changed', listener);
+  },
   onFileDrop: (cb) => {
     const onDrop = (e: DragEvent) => {
       e.preventDefault();

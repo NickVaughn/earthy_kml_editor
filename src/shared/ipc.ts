@@ -64,6 +64,10 @@ export interface Api {
   onMenuAction(cb: (action: string) => void): () => void;
   /** Native file drag-drop onto the window; yields absolute paths. */
   onFileDrop(cb: (paths: string[]) => void): () => void;
+  /** Tell main whether the document has unsaved changes (for the quit guard). */
+  setDirty(dirty: boolean): void;
+  /** Fires when the currently open file is modified on disk by another program. */
+  onFileChanged(cb: (path: string) => void): () => void;
 }
 
 declare global {

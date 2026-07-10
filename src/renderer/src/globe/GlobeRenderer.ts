@@ -95,16 +95,28 @@ export class GlobeRenderer {
     this.viewer.imageryLayers.addImageryProvider(provider);
   }
 
+  /** Load a new document: build the scene and frame it. */
   setDocument(doc: KmlDocument): void {
     this.doc = doc;
-    this.scene?.dispose();
-    const t0 = performance.now();
-    this.scene = buildScene(this.viewer, doc);
-    const ms = performance.now() - t0;
+    this.rebuildScene();
     this.clearSelection();
     this.zoomToAll();
+  }
+
+  /** Rebuild the scene for the current document after an edit, keeping the camera. */
+  rebuild(): void {
+    if (!this.doc) return;
+    this.rebuildScene();
+  }
+
+  private rebuildScene(): void {
+    if (!this.doc) return;
+    this.scene?.dispose();
+    const t0 = performance.now();
+    this.scene = buildScene(this.viewer, this.doc);
+    const ms = performance.now() - t0;
     console.info(
-      `[nge] scene built: ${doc.stats().features} features in ${ms.toFixed(0)}ms`,
+      `[nge] scene built: ${this.doc.stats().features} features in ${ms.toFixed(0)}ms`,
     );
   }
 

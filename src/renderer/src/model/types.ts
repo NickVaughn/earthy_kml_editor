@@ -117,6 +117,15 @@ export interface KmlStyleMap {
   pairs: StyleMapPair[];
 }
 
+/**
+ * A shared (id'd) Style or StyleMap defined directly inside a container. Stored
+ * in the model (not as raw XML) so it can be edited and re-serialized. The same
+ * object is also referenced from KmlDocumentData.sharedStyles for resolution.
+ */
+export type SharedStyleEntry =
+  | { kind: 'Style'; style: KmlStyle }
+  | { kind: 'StyleMap'; map: KmlStyleMap };
+
 // ---- Nodes ----------------------------------------------------------------
 
 export interface KmlNode {
@@ -137,6 +146,8 @@ export interface KmlNode {
   styleUrl?: string;
   inlineStyle?: KmlStyle;
   inlineStyleMap?: KmlStyleMap;
+  /** Container-level shared styles (Document/Folder), in document order. */
+  styles?: SharedStyleEntry[];
   extendedData?: { raw: string }; // preserved verbatim for now (Phase 4 will parse)
 
   /** For GroundOverlay / ScreenOverlay / NetworkLink: the whole element as raw XML. */

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron';
 import { join } from 'node:path';
+import { watch, type FSWatcher } from 'node:fs';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
 import {
@@ -18,6 +19,33 @@ import type { SaveRequest, GoogleMapType } from '@shared/ipc';
 let mainWindow: BrowserWindow | null = null;
 /** A path passed on the command line / via file association before the window is ready. */
 let pendingOpenPath: string | null = null;
+
+// Unsaved-changes quit guard.
+let isDirty = false;
+let forceClose = false;
+
+// External-change watcher for the currently open file.
+let watcher: FSWatcher | null = null;
+let watchedPath: string | null = null;
+let selfWriteUntil = 0; // ignore our own saves until this timestamp
+let changeTimer: NodeJS.Timeout | null = null;
+
+function watchFile(path: string): void {
+  if (watcher && watchedPath === path) return;
+  watcher?.close();
+  watchedPath = path;
+  try {
+    watcher = watch(path, () => {
+      if (Date.now() < selfWriteUntil) return; // our own save
+      if (changeTimer) clearTimeout(changeTimer);
+      changeTimer = setTimeout(() => {
+        mainWindow?.webContents.send('file-externally-changed', path);
+      }, 300);
+    });
+  } catch {
+    watcher = null;
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -76,6 +104,26 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Unsaved-changes guard on window close.
+  mainWindow.on('close', (e) => {
+    if (!isDirty || forceClose) return;
+    e.preventDefault();
+    dialog
+      .showMessageBox(mainWindow!, {
+        type: 'warning',
+        buttons: ['Cancel', 'Discard changes'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'You have unsaved changes. Discard them and close?',
+      })
+      .then(({ response }) => {
+        if (response === 1) {
+          forceClose = true;
+          mainWindow?.close();
+        }
+      });
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -138,23 +186,31 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null;
     const opened = await readGeoFile(res.filePaths[0]);
     pushRecentFile(res.filePaths[0]);
+    watchFile(res.filePaths[0]);
     return opened;
   });
 
   ipcMain.handle('open-path', async (_e, path: string) => {
     const opened = await readGeoFile(path);
     pushRecentFile(path);
+    watchFile(path);
     return opened;
   });
 
   ipcMain.handle('save-file', async (_e, req: SaveRequest) => {
     try {
+      selfWriteUntil = Date.now() + 1500; // suppress our own change event
       await writeGeoFile(req.path, req.kml, req.asKmz, req.resources ?? {});
       pushRecentFile(req.path);
+      watchFile(req.path);
       return { ok: true, path: req.path };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  ipcMain.on('set-dirty', (_e, dirty: boolean) => {
+    isDirty = dirty;
   });
 
   ipcMain.handle('save-file-dialog', async (_e, defaultName: string) => {

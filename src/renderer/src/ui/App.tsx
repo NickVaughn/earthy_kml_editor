@@ -3,6 +3,7 @@ import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
 import { TreePanel } from './TreePanel';
+import { StylePanel } from './StylePanel';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
@@ -61,33 +62,52 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  // ---- react to document changes ------------------------------------------
+  // ---- new document / scene rebuild ---------------------------------------
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe) return;
     if (prevDocRef.current !== store.doc) {
       prevDocRef.current = store.doc;
-      globe.setDocument(store.doc);
+      globe.setDocument(store.doc); // new file: build + frame
     } else {
-      globe.refreshVisibility();
+      globe.rebuild(); // edit: rebuild, keep camera
     }
-  }, [store.doc, store.revision]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.docId, store.sceneEpoch]);
+
+  // ---- visibility-only updates (no rebuild) -------------------------------
+  useEffect(() => {
+    globeRef.current?.refreshVisibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.visEpoch]);
 
   // ---- selection highlight -------------------------------------------------
   useEffect(() => {
     globeRef.current?.setSelection(store.selection);
   }, [store.selection]);
 
+  // ---- report dirty state to main (quit guard) ----------------------------
+  useEffect(() => {
+    window.api.setDirty(store.dirty);
+  }, [store.dirty]);
+
   // ---- file operations -----------------------------------------------------
-  const doOpen = useCallback(async () => {
-    const opened = await window.api.openFileDialog();
-    if (opened) useStore.getState().loadOpened(opened);
+  const guardDiscard = useCallback((): boolean => {
+    if (!useStore.getState().dirty) return true;
+    return window.confirm('Discard unsaved changes?');
   }, []);
 
+  const doOpen = useCallback(async () => {
+    if (!guardDiscard()) return;
+    const opened = await window.api.openFileDialog();
+    if (opened) useStore.getState().loadOpened(opened);
+  }, [guardDiscard]);
+
   const openPath = useCallback(async (path: string) => {
+    if (!guardDiscard()) return;
     const opened = await window.api.openPath(path);
     if (opened) useStore.getState().loadOpened(opened);
-  }, []);
+  }, [guardDiscard]);
 
   const doSave = useCallback(async (forceDialog: boolean) => {
     const st = useStore.getState();
@@ -117,16 +137,31 @@ export function App(): JSX.Element {
       if (action === 'open') doOpen();
       else if (action === 'save') doSave(false);
       else if (action === 'saveAs') doSave(true);
+      else if (action === 'undo') useStore.getState().undo();
+      else if (action === 'redo') useStore.getState().redo();
     });
     const offOpen = window.api.onOpenRequested((path) => openPath(path));
     const offDrop = window.api.onFileDrop((paths) => {
       const geo = paths.find((p) => /\.(kml|kmz)$/i.test(p));
       if (geo) openPath(geo);
     });
+    const offChanged = window.api.onFileChanged((path) => {
+      const st = useStore.getState();
+      if (path !== st.filePath) return;
+      const msg = st.dirty
+        ? 'This file changed on disk, but you have unsaved edits. Reload and lose your changes?'
+        : 'This file changed on disk. Reload?';
+      if (window.confirm(msg)) {
+        window.api.openPath(path).then((opened) => {
+          if (opened) useStore.getState().loadOpened(opened);
+        });
+      }
+    });
     return () => {
       offMenu();
       offOpen();
       offDrop();
+      offChanged();
     };
   }, [doOpen, doSave, openPath]);
 
@@ -157,6 +192,7 @@ export function App(): JSX.Element {
             onFlyTo={(id) => globeRef.current?.flyTo(id)}
             onOpenBalloon={(id) => useStore.getState().openBalloon(id)}
           />
+          <StylePanel />
         </div>
         <div className="globe-wrap">
           <div ref={globeContainer} className="globe" />
