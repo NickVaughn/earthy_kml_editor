@@ -123,6 +123,15 @@ Draw and reshape features directly on the globe.
 
 **Not verified headlessly:** the actual pointer interactions (drawing clicks, vertex dragging, midpoint insert). The model + serialization beneath them is unit-tested; drive it manually with `npm run dev`. "Opens identically in Google Earth Pro" (PLAN accept) needs a manual GE check — output is standard KML 2.2 (Point/LineString/Polygon).
 
+## Phase 3 refinements (multi-document + fixes)
+
+- **Multiple open documents.** The workspace now holds `docs: KmlDocument[]` (each with its own path, dirty flag, undo stack). The tree shows every doc's root; the globe renders all docs in one batched scene (node ids are globally unique). Store resolves the target doc per operation (`docOf`, `activeDoc`). Opening a file adds a doc rather than replacing; the app starts with an empty workspace.
+- **Delete/close a root.** Deleting a document's root node closes that file (with a confirm if it has unsaved changes) instead of failing.
+- **Save moved to the tree.** Toolbar Save/Save As removed; right-click a file's root → Save / Save As… / Close File. Root rows show a dirty dot. Menu File▸Save still targets the active document.
+- **Empty workspace supported** — no doc open is a valid state; drawing a feature with nothing open creates a fresh Untitled doc.
+- **Default feature style** is now white outline (opaque) + white fill (~50%), applied as an explicit inline style on drawn features (self-contained + editable). Render defaults for unstyled features also changed to white. (Configurable in a future settings pass.)
+- **Polygon fill visibility fix.** GroundPrimitives were nested in a generic `PrimitiveCollection`, which prevents the classification pass from rendering them — moved to the scene's dedicated `groundPrimitives` collection. This should fix both invisible fills and interior picking. *(Needs manual confirmation — can't verify pixels headlessly.)*
+
 ## How to run
 
 - `npm run dev` — dev server + Electron with HMR.

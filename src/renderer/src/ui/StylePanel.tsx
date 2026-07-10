@@ -29,28 +29,32 @@ interface Selected {
 }
 
 export function StylePanel(): JSX.Element | null {
-  const doc = useStore((s) => s.doc);
+  const docs = useStore((s) => s.docs);
+  const docOf = useStore((s) => s.docOf);
   const selection = useStore((s) => s.selection);
   const revision = useStore((s) => s.revision);
   const applyStyle = useStore((s) => s.applyStyle);
 
   const sel: Selected = useMemo(() => {
     const placemarks: KmlNode[] = [];
+    const styles: KmlStyle[] = [];
     const seen = new Set<string>();
     for (const id of selection) {
-      const node = doc.nodeById(id);
-      if (!node) continue;
+      const doc = docOf(id);
+      const node = doc?.nodeById(id);
+      if (!doc || !node) continue;
       for (const n of doc.walk(node)) {
         if (n.type === 'Placemark' && n.geometry && !seen.has(n.id)) {
           seen.add(n.id);
           placemarks.push(n);
+          styles.push(doc.styleFor(n));
         }
       }
     }
     const kinds = (n: KmlNode): string => n.geometry?.kind ?? '';
     return {
       placemarks,
-      styles: placemarks.map((p) => doc.styleFor(p)),
+      styles,
       hasPoint: placemarks.some((p) => kinds(p) === 'Point' || kinds(p) === 'MultiGeometry'),
       hasLine: placemarks.some((p) =>
         ['LineString', 'Polygon', 'MultiGeometry'].includes(kinds(p)),
@@ -58,7 +62,7 @@ export function StylePanel(): JSX.Element | null {
       hasPoly: placemarks.some((p) => kinds(p) === 'Polygon' || kinds(p) === 'MultiGeometry'),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, revision, doc]);
+  }, [selection, revision, docs]);
 
   const [patch, setPatch] = useState<StylePatch>({});
 

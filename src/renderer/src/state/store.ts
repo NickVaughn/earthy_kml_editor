@@ -1,8 +1,21 @@
 import { create } from 'zustand';
 import { KmlDocument } from '@renderer/model/document';
 import type { StylePatch } from '@renderer/model/bulkStyle';
-import type { Geometry } from '@renderer/model/types';
+import type { Geometry, KmlStyle } from '@renderer/model/types';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
+
+// Default style for newly drawn features: white outline (opaque), white fill
+// (~50%). aabbggrr — ffffffff = opaque white, 80ffffff = ~50% white.
+function defaultStyle(kind: Geometry['kind']): KmlStyle {
+  if (kind === 'Point') return { icon: { color: 'ffffffff', scale: 1 } };
+  if (kind === 'LineString') return { line: { color: 'ffffffff', width: 2 } };
+  if (kind === 'Polygon')
+    return {
+      line: { color: 'ffffffff', width: 2 },
+      poly: { color: '80ffffff', fill: true, outline: true },
+    };
+  return {};
+}
 
 export type InteractionMode =
   | 'none'
@@ -13,23 +26,24 @@ export type InteractionMode =
   | 'measure';
 
 interface AppState {
-  doc: KmlDocument;
-  /** Increments only when a new document is loaded (identity change). */
-  docId: number;
-  /** Increments when the rendered scene must be rebuilt (structure/style/geometry). */
-  sceneEpoch: number;
-  /** Increments when only visibility changed (cheap show/hide, no rebuild). */
-  visEpoch: number;
-  /** Increments on every change, to re-render React views (tree, status bar). */
-  revision: number;
+  /** All open documents (multi-doc workspace). */
+  docs: KmlDocument[];
+  /** The document targeted by menu save / undo / redo (last interacted). */
+  activeDocId: string | null;
 
-  filePath: string | null;
-  wasKmz: boolean;
+  /** Bumps when the SET of open docs changes (open/close/new) → globe reframes. */
+  docEpoch: number;
+  /** Bumps when rendered content changes (edit/style/add) → globe rebuilds. */
+  sceneEpoch: number;
+  /** Bumps on visibility-only changes → cheap show/hide. */
+  visEpoch: number;
+  /** Bumps on every change → re-render React views. */
+  revision: number;
+  /** True if any open doc has unsaved changes. */
   dirty: boolean;
 
   selection: string[];
   balloonNodeId: string | null;
-
   interactionMode: InteractionMode;
   measureResult: string | null;
 
@@ -39,9 +53,15 @@ interface AppState {
   cursorLat: number | null;
 
   // lifecycle
-  loadOpened(opened: OpenedFile): void;
-  newDocument(): void;
-  markSaved(path: string, wasKmz: boolean): void;
+  openDoc(opened: OpenedFile): void;
+  newDocument(): KmlDocument;
+  closeDoc(docId: string): void;
+  markSaved(docId: string, path: string, wasKmz: boolean): void;
+
+  // lookups
+  docOf(nodeId: string): KmlDocument | undefined;
+  activeDoc(): KmlDocument | undefined;
+  isRoot(nodeId: string): boolean;
 
   // view
   setSelection(ids: string[]): void;
@@ -50,7 +70,7 @@ interface AppState {
   setHasGoogleKey(v: boolean): void;
   setCursor(lon: number | null, lat: number | null): void;
 
-  // mutations (route through the model, then bump the right epoch)
+  // mutations
   toggleVisibility(id: string): void;
   rename(id: string, name: string): void;
   move(ids: string[], targetId: string, index?: number): void;
@@ -63,7 +83,7 @@ interface AppState {
   undo(): void;
   redo(): void;
 
-  // Phase 3: geometry creation/editing
+  // geometry
   setMode(mode: InteractionMode): void;
   setMeasure(result: string | null): void;
   addPlacemark(geometry: Geometry, name?: string): string;
@@ -79,23 +99,30 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export const useStore = create<AppState>((set, get) => {
+  const anyDirty = () => get().docs.some((d) => d.dirty);
   const bumpScene = () =>
-    set((s) => ({ sceneEpoch: s.sceneEpoch + 1, revision: s.revision + 1, dirty: true }));
+    set((s) => ({ sceneEpoch: s.sceneEpoch + 1, revision: s.revision + 1, dirty: anyDirty() }));
   const bumpVis = () =>
-    set((s) => ({ visEpoch: s.visEpoch + 1, revision: s.revision + 1, dirty: true }));
+    set((s) => ({ visEpoch: s.visEpoch + 1, revision: s.revision + 1, dirty: anyDirty() }));
+  const bumpMeta = () =>
+    set((s) => ({ revision: s.revision + 1, dirty: anyDirty() }));
   const bumpView = () => set((s) => ({ revision: s.revision + 1 }));
-  // Metadata/geometry edit: dirty + re-render, but no scene rebuild (the edit
-  // tool renders its own live preview; the scene is rebuilt when editing ends).
-  const bumpMeta = () => set((s) => ({ revision: s.revision + 1, dirty: true }));
+  const bumpDocs = (docs: KmlDocument[], activeDocId: string | null) =>
+    set((s) => ({
+      docs,
+      activeDocId,
+      docEpoch: s.docEpoch + 1,
+      revision: s.revision + 1,
+      dirty: docs.some((d) => d.dirty),
+    }));
 
   return {
-    doc: KmlDocument.empty(),
-    docId: 0,
+    docs: [],
+    activeDocId: null,
+    docEpoch: 0,
     sceneEpoch: 0,
     visEpoch: 0,
     revision: 0,
-    filePath: null,
-    wasKmz: false,
     dirty: false,
     selection: [],
     balloonNodeId: null,
@@ -106,47 +133,52 @@ export const useStore = create<AppState>((set, get) => {
     cursorLon: null,
     cursorLat: null,
 
-    loadOpened(opened) {
+    openDoc(opened) {
       const doc = KmlDocument.fromKml(opened.kml);
       doc.path = opened.path;
       doc.wasKmz = opened.wasKmz;
       doc.resources = opened.resources;
-      set((s) => ({
-        doc,
-        docId: s.docId + 1,
-        sceneEpoch: s.sceneEpoch + 1,
-        revision: s.revision + 1,
-        filePath: opened.path,
-        wasKmz: opened.wasKmz,
-        dirty: false,
-        selection: [],
-        balloonNodeId: null,
-      }));
+      set({ selection: [], balloonNodeId: null, interactionMode: 'none' });
+      bumpDocs([...get().docs, doc], doc.id);
     },
 
     newDocument() {
-      set((s) => ({
-        doc: KmlDocument.empty(),
-        docId: s.docId + 1,
-        sceneEpoch: s.sceneEpoch + 1,
-        revision: s.revision + 1,
-        filePath: null,
-        wasKmz: false,
-        dirty: false,
-        selection: [],
-        balloonNodeId: null,
-      }));
+      const doc = KmlDocument.empty();
+      bumpDocs([...get().docs, doc], doc.id);
+      return doc;
     },
 
-    markSaved(path, wasKmz) {
-      get().doc.path = path;
-      get().doc.wasKmz = wasKmz;
-      get().doc.dirty = false;
-      set({ filePath: path, wasKmz, dirty: false });
+    closeDoc(docId) {
+      const docs = get().docs.filter((d) => d.id !== docId);
+      const active = get().activeDocId === docId ? (docs.at(-1)?.id ?? null) : get().activeDocId;
+      set((s) => ({ selection: s.selection.filter((id) => get().docOf(id)) }));
+      bumpDocs(docs, active);
+    },
+
+    markSaved(docId, path, wasKmz) {
+      const doc = get().docs.find((d) => d.id === docId);
+      if (doc) {
+        doc.path = path;
+        doc.wasKmz = wasKmz;
+        doc.dirty = false;
+      }
+      set({ dirty: anyDirty(), revision: get().revision + 1 });
+    },
+
+    docOf(nodeId) {
+      return get().docs.find((d) => d.nodeById(nodeId));
+    },
+    activeDoc() {
+      const { docs, activeDocId } = get();
+      return docs.find((d) => d.id === activeDocId) ?? docs.at(-1);
+    },
+    isRoot(nodeId) {
+      return get().docs.some((d) => d.root.id === nodeId);
     },
 
     setSelection(ids) {
-      set({ selection: ids });
+      const active = ids.length ? (get().docOf(ids[0])?.id ?? get().activeDocId) : get().activeDocId;
+      set({ selection: ids, activeDocId: active });
     },
     openBalloon(id) {
       set({ balloonNodeId: id });
@@ -162,84 +194,128 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     toggleVisibility(id) {
-      const node = get().doc.nodeById(id);
-      if (!node) return;
-      get().doc.setVisibility(id, !node.visible);
+      const doc = get().docOf(id);
+      const node = doc?.nodeById(id);
+      if (!doc || !node) return;
+      doc.setVisibility(id, !node.visible);
       bumpVis();
     },
     rename(id, name) {
-      get().doc.rename(id, name);
-      bumpScene(); // labels may change
+      get().docOf(id)?.rename(id, name);
+      bumpScene();
     },
     move(ids, targetId, index) {
-      const moved = get().doc.move(ids, targetId, index);
+      const doc = get().docOf(targetId);
+      if (!doc) return;
+      // Only move nodes that live in the same document as the target.
+      const sameDoc = ids.filter((id) => doc.nodeById(id));
+      const moved = doc.move(sameDoc, targetId, index);
       if (moved.length) {
         set({ selection: moved });
         bumpScene();
       }
     },
     remove(ids) {
-      get().doc.delete(ids);
+      let closedAny = false;
+      // Group non-root nodes by their document; close docs for root nodes.
+      const byDoc = new Map<KmlDocument, string[]>();
+      for (const id of ids) {
+        if (get().isRoot(id)) {
+          const doc = get().docs.find((d) => d.root.id === id);
+          if (doc) {
+            get().closeDoc(doc.id);
+            closedAny = true;
+          }
+          continue;
+        }
+        const doc = get().docOf(id);
+        if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
+      }
+      for (const [doc, nodeIds] of byDoc) doc.delete(nodeIds);
       set({ selection: [] });
-      bumpScene();
+      if (byDoc.size) bumpScene();
+      else if (!closedAny) bumpView();
     },
     createFolder(parentId) {
-      const folder = get().doc.createFolder(parentId);
+      const doc = get().docOf(parentId);
+      const folder = doc?.createFolder(parentId);
       if (folder) {
         set({ selection: [folder.id] });
         bumpScene();
       }
     },
     copy(ids) {
-      get().doc.copy(ids);
-      bumpView(); // enable paste UI
+      const doc = get().docOf(ids[0]);
+      if (!doc) return;
+      doc.copy(ids.filter((id) => doc.nodeById(id)));
+      bumpView();
     },
     cut(ids) {
-      get().doc.cut(ids);
+      const doc = get().docOf(ids[0]);
+      if (!doc) return;
+      doc.cut(ids.filter((id) => doc.nodeById(id)));
       set({ selection: [] });
       bumpScene();
     },
     paste(targetId) {
-      const pasted = get().doc.paste(targetId);
-      if (pasted.length) {
+      const doc = get().docOf(targetId);
+      const pasted = doc?.paste(targetId);
+      if (pasted?.length) {
         set({ selection: pasted });
         bumpScene();
       }
     },
     applyStyle(patch) {
-      const res = get().doc.applyStyle(get().selection, patch);
-      if (res.patched || res.created) bumpScene();
-      return res;
+      // Selection may span documents; apply per doc and sum results.
+      const byDoc = new Map<KmlDocument, string[]>();
+      for (const id of get().selection) {
+        const doc = get().docOf(id);
+        if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
+      }
+      let patched = 0;
+      let created = 0;
+      for (const [doc, ids] of byDoc) {
+        const r = doc.applyStyle(ids, patch);
+        patched += r.patched;
+        created += r.created;
+      }
+      if (patched || created) bumpScene();
+      return { patched, created };
     },
     undo() {
-      if (get().doc.undo()) bumpScene();
+      if (get().activeDoc()?.undo()) bumpScene();
     },
     redo() {
-      if (get().doc.redo()) bumpScene();
+      if (get().activeDoc()?.redo()) bumpScene();
     },
 
     setMode(mode) {
       set({ interactionMode: mode });
-      // Clear a stale measurement when starting any tool; keep it when returning
-      // to 'none' (so the last result stays on screen after finishing a measure).
       if (mode !== 'none') set({ measureResult: null });
     },
     setMeasure(result) {
       set({ measureResult: result });
     },
     addPlacemark(geometry, name) {
-      const parentId = get().selection[0] ?? null;
-      const id = get().doc.addPlacemark(parentId, geometry, name);
-      set({ selection: [id] });
-      bumpScene();
+      // Target the selection's doc, else the active doc, else a fresh Untitled.
+      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      let newDoc = false;
+      if (!doc) {
+        doc = get().newDocument();
+        newDoc = true;
+      }
+      const parentId = get().selection[0] ?? doc.root.id;
+      const id = doc.addPlacemark(parentId, geometry, name, defaultStyle(geometry.kind));
+      set({ selection: [id], activeDocId: doc.id });
+      if (!newDoc) bumpScene();
       return id;
     },
     updateGeometry(nodeId, geometry) {
-      get().doc.updateGeometry(nodeId, geometry);
-      bumpMeta(); // edit tool shows the live preview; no scene rebuild mid-edit
+      get().docOf(nodeId)?.updateGeometry(nodeId, geometry);
+      bumpMeta();
     },
     setDescription(nodeId, description) {
-      get().doc.setDescription(nodeId, description);
+      get().docOf(nodeId)?.setDescription(nodeId, description);
       bumpMeta();
     },
   };

@@ -22,7 +22,6 @@ const MODE_HINT: Record<string, string> = {
 export function App(): JSX.Element {
   const globeContainer = useRef<HTMLDivElement>(null);
   const globeRef = useRef<GlobeRenderer | null>(null);
-  const prevDocRef = useRef<unknown>(null);
 
   const store = useStore();
 
@@ -73,18 +72,18 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  // ---- new document / scene rebuild ---------------------------------------
+  // ---- open/close a document: rebuild + frame -----------------------------
   useEffect(() => {
-    const globe = globeRef.current;
-    if (!globe) return;
-    if (prevDocRef.current !== store.doc) {
-      prevDocRef.current = store.doc;
-      globe.setDocument(store.doc); // new file: build + frame
-    } else {
-      globe.rebuild(); // edit: rebuild, keep camera
-    }
+    globeRef.current?.setDocuments(useStore.getState().docs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.docId, store.sceneEpoch]);
+  }, [store.docEpoch]);
+
+  // ---- content edit: rebuild, keep the camera -----------------------------
+  useEffect(() => {
+    if (store.sceneEpoch === 0) return;
+    globeRef.current?.rebuild();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.sceneEpoch]);
 
   // ---- visibility-only updates (no rebuild) -------------------------------
   useEffect(() => {
@@ -144,7 +143,7 @@ export function App(): JSX.Element {
       );
     } else if (mode === 'edit') {
       const sel = s().selection;
-      const node = sel.length === 1 ? s().doc.nodeById(sel[0]) : undefined;
+      const node = sel.length === 1 ? s().docOf(sel[0])?.nodeById(sel[0]) : undefined;
       if (node?.type === 'Placemark' && node.geometry) {
         globe.startEdit(node.id, (g) => s().updateGeometry(node.id, g));
       } else {
@@ -155,42 +154,37 @@ export function App(): JSX.Element {
   }, [store.interactionMode]);
 
   // ---- file operations -----------------------------------------------------
-  const guardDiscard = useCallback((): boolean => {
-    if (!useStore.getState().dirty) return true;
-    return window.confirm('Discard unsaved changes?');
+  // Opening adds a document to the workspace (multi-doc), so no discard guard.
+  const doOpen = useCallback(async () => {
+    const opened = await window.api.openFileDialog();
+    if (opened) useStore.getState().openDoc(opened);
   }, []);
 
-  const doOpen = useCallback(async () => {
-    if (!guardDiscard()) return;
-    const opened = await window.api.openFileDialog();
-    if (opened) useStore.getState().loadOpened(opened);
-  }, [guardDiscard]);
-
   const openPath = useCallback(async (path: string) => {
-    if (!guardDiscard()) return;
     const opened = await window.api.openPath(path);
-    if (opened) useStore.getState().loadOpened(opened);
-  }, [guardDiscard]);
+    if (opened) useStore.getState().openDoc(opened);
+  }, []);
 
-  const doSave = useCallback(async (forceDialog: boolean) => {
+  const doSave = useCallback(async (forceDialog: boolean, docId?: string) => {
     const st = useStore.getState();
-    let path = st.filePath;
-    let asKmz = st.wasKmz;
+    const doc = docId ? st.docs.find((d) => d.id === docId) : st.activeDoc();
+    if (!doc) return;
+    let path = doc.path;
+    let asKmz = doc.wasKmz;
     if (!path || forceDialog) {
-      const base = path?.split('/').pop() ?? 'untitled.kml';
+      const base = path?.split('/').pop() ?? `${doc.root.name || 'untitled'}.kml`;
       const chosen = await window.api.saveFileDialog(base);
       if (!chosen) return;
       path = chosen.path;
       asKmz = chosen.asKmz;
     }
-    const kml = st.doc.serialize();
     const res = await window.api.saveFile({
       path,
-      kml,
+      kml: doc.serialize(),
       asKmz,
-      resources: st.doc.resources,
+      resources: doc.resources,
     });
-    if (res.ok && res.path) useStore.getState().markSaved(res.path, asKmz);
+    if (res.ok && res.path) st.markSaved(doc.id, res.path, asKmz);
     else if (!res.ok) alert(`Save failed: ${res.error}`);
   }, []);
 
@@ -210,13 +204,17 @@ export function App(): JSX.Element {
     });
     const offChanged = window.api.onFileChanged((path) => {
       const st = useStore.getState();
-      if (path !== st.filePath) return;
-      const msg = st.dirty
+      const doc = st.docs.find((d) => d.path === path);
+      if (!doc) return;
+      const msg = doc.dirty
         ? 'This file changed on disk, but you have unsaved edits. Reload and lose your changes?'
         : 'This file changed on disk. Reload?';
       if (window.confirm(msg)) {
         window.api.openPath(path).then((opened) => {
-          if (opened) useStore.getState().loadOpened(opened);
+          if (opened) {
+            useStore.getState().closeDoc(doc.id);
+            useStore.getState().openDoc(opened);
+          }
         });
       }
     });
@@ -237,32 +235,32 @@ export function App(): JSX.Element {
     [applyBasemap],
   );
 
-  const balloonNode = store.balloonNodeId
-    ? store.doc.nodeById(store.balloonNodeId)
-    : null;
-  const balloonHtml = balloonNode
-    ? resolveBalloonHtml(store.doc.data, balloonNode)
-    : '';
+  const balloonDoc = store.balloonNodeId ? store.docOf(store.balloonNodeId) : undefined;
+  const balloonNode = balloonDoc?.nodeById(store.balloonNodeId!) ?? null;
+  const balloonHtml =
+    balloonNode && balloonDoc ? resolveBalloonHtml(balloonDoc.data, balloonNode) : '';
 
   return (
     <div className="app">
-      <Toolbar
-        onOpen={doOpen}
-        onSave={() => doSave(false)}
-        onSaveAs={() => doSave(true)}
-        onChangeBasemap={onChangeBasemap}
-      />
+      <Toolbar onOpen={doOpen} onChangeBasemap={onChangeBasemap} />
       <div className="body">
         <div className="sidebar">
           <TreePanel
             onFlyTo={(id) => globeRef.current?.flyTo(id)}
             onOpenBalloon={(id) => useStore.getState().openBalloon(id)}
+            onSave={(docId) => doSave(false, docId)}
+            onSaveAs={(docId) => doSave(true, docId)}
           />
           <Inspector />
           <StylePanel />
         </div>
         <div className="globe-wrap">
           <div ref={globeContainer} className="globe" />
+          {store.docs.length === 0 && (
+            <div className="empty-hint">
+              Open a KML/KMZ (⌘O) or drag one in — you can open several at once.
+            </div>
+          )}
           {store.interactionMode !== 'none' && (
             <div className="mode-hint">
               {MODE_HINT[store.interactionMode]}
@@ -279,7 +277,7 @@ export function App(): JSX.Element {
             <Balloon
               node={balloonNode}
               html={balloonHtml}
-              resources={store.doc.resources}
+              resources={balloonDoc?.resources ?? {}}
               onClose={() => useStore.getState().openBalloon(null)}
             />
           )}

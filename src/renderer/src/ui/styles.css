@@ -239,6 +239,20 @@ body,
   resize: vertical;
 }
 
+.empty-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #ddd;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  z-index: 11;
+}
+
 /* Mode hint + measure readout over the globe */
 .mode-hint {
   position: absolute;

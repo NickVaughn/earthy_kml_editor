@@ -24,9 +24,10 @@ import type { KmlDocument } from '@renderer/model/document';
 import type { KmlNode, Geometry, Position } from '@renderer/model/types';
 import { kmlToCesium } from './cesiumColor';
 
-const DEFAULT_LINE = Color.YELLOW;
-const DEFAULT_FILL = Color.CYAN.withAlpha(0.4);
-const DEFAULT_POINT = Color.YELLOW;
+// Defaults for features without an explicit style (configurable later).
+const DEFAULT_LINE = Color.WHITE;
+const DEFAULT_FILL = Color.WHITE.withAlpha(0.5);
+const DEFAULT_POINT = Color.WHITE;
 
 function toCartesians(positions: Position[]): Cartesian3[] {
   return positions.map((p) => Cartesian3.fromDegrees(p[0], p[1], p[2] ?? 0));
@@ -45,7 +46,7 @@ export interface SceneHandle {
   dispose(): void;
 }
 
-export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
+export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const primitives = new PrimitiveCollection();
   viewer.scene.primitives.add(primitives);
 
@@ -72,7 +73,12 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
 
   const labelCond = new DistanceDisplayCondition(0, 2_000_000);
 
-  function addGeometry(node: KmlNode, g: Geometry, startVisible: boolean): void {
+  function addGeometry(
+    doc: KmlDocument,
+    node: KmlNode,
+    g: Geometry,
+    startVisible: boolean,
+  ): void {
     const style = doc.styleFor(node);
     switch (g.kind) {
       case 'Point': {
@@ -183,16 +189,17 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
         break;
       }
       case 'MultiGeometry':
-        for (const child of g.geometries) addGeometry(node, child, startVisible);
+        for (const child of g.geometries) addGeometry(doc, node, child, startVisible);
         break;
     }
   }
 
-  // Walk placemarks, honoring effective (ancestor-aware) visibility.
-  for (const node of doc.placemarksUnder()) {
-    if (!node.geometry) continue;
-    const visible = doc.isEffectivelyVisible(node);
-    addGeometry(node, node.geometry, visible);
+  // Walk every open document's placemarks (node ids are globally unique).
+  for (const doc of docs) {
+    for (const node of doc.placemarksUnder()) {
+      if (!node.geometry) continue;
+      addGeometry(doc, node, node.geometry, doc.isEffectivelyVisible(node));
+    }
   }
 
   // Build the batched polygon fill as a GroundPrimitive. Draping the fill on
@@ -208,7 +215,10 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
       releaseGeometryInstances: false,
       asynchronous: polygonInstances.length > 200,
     });
-    primitives.add(polygonPrimitive);
+    // GroundPrimitives must live in the scene's dedicated groundPrimitives
+    // collection — nesting them in a generic PrimitiveCollection prevents the
+    // classification pass from rendering the fill.
+    viewer.scene.groundPrimitives.add(polygonPrimitive);
     // Register show-toggles for each polygon instance.
     for (const inst of polygonInstances) {
       const id = inst.id as string;
@@ -240,6 +250,7 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
     },
     dispose() {
       viewer.scene.primitives.remove(primitives); // destroys children
+      if (polygonPrimitive) viewer.scene.groundPrimitives.remove(polygonPrimitive);
     },
   };
 }

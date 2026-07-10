@@ -2,13 +2,23 @@ import { useMemo } from 'react';
 import { useStore } from '@renderer/state/store';
 
 export function StatusBar(): JSX.Element {
-  const doc = useStore((s) => s.doc);
+  const docs = useStore((s) => s.docs);
   const revision = useStore((s) => s.revision);
   const lon = useStore((s) => s.cursorLon);
   const lat = useStore((s) => s.cursorLat);
   const selection = useStore((s) => s.selection);
 
-  const stats = useMemo(() => doc.stats(), [doc, revision]);
+  const stats = useMemo(() => {
+    let features = 0;
+    let folders = 0;
+    for (const d of docs) {
+      const s = d.stats();
+      features += s.features;
+      folders += s.folders;
+    }
+    return { features, folders };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs, revision]);
 
   return (
     <div className="statusbar">

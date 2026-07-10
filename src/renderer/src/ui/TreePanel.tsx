@@ -41,6 +41,8 @@ function MoveCursor({ top, left, indent }: { top: number; left: number; indent: 
 interface Props {
   onFlyTo: (id: string) => void;
   onOpenBalloon: (id: string) => void;
+  onSave: (docId: string) => void;
+  onSaveAs: (docId: string) => void;
 }
 
 const ICON: Record<string, string> = {
@@ -71,6 +73,10 @@ function Row({ node, style, dragHandle }: NodeRendererProps<KmlNode>): JSX.Eleme
   const data = node.data;
   const selection = useStore((s) => s.selection);
   const toggleVisibility = useStore((s) => s.toggleVisibility);
+  const dirtyRoot = useStore((s) => {
+    const d = s.docs.find((doc) => doc.root.id === data.id);
+    return d ? d.dirty : false;
+  });
   const openMenu = useContext(RowCtx);
   const isSelected = selection.includes(data.id);
 
@@ -114,7 +120,10 @@ function Row({ node, style, dragHandle }: NodeRendererProps<KmlNode>): JSX.Eleme
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="tree-name">{data.name || <em>(unnamed)</em>}</span>
+        <span className="tree-name">
+          {data.name || <em>(unnamed)</em>}
+          {dirtyRoot ? ' •' : ''}
+        </span>
       )}
     </div>
   );
@@ -126,8 +135,9 @@ interface MenuState {
   nodeId: string;
 }
 
-export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
-  const doc = useStore((s) => s.doc);
+export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): JSX.Element {
+  const docs = useStore((s) => s.docs);
+  const docEpoch = useStore((s) => s.docEpoch);
   const revision = useStore((s) => s.revision);
   const selection = useStore((s) => s.selection);
   const setSelection = useStore((s) => s.setSelection);
@@ -148,14 +158,15 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
     return () => ro.disconnect();
   }, []);
 
-  const data = useMemo(() => [doc.root], [doc, revision]);
+  const data = useMemo(() => docs.map((d) => d.root), [docs, docEpoch, revision]);
 
   const onMove = useCallback(
     (args: { dragIds: string[]; parentId: string | null; index: number }) => {
-      const target = args.parentId ?? doc.root.id;
-      st.getState().move(args.dragIds, target, args.index);
+      // Null parent = top level; land in the dragged nodes' own document root.
+      const target = args.parentId ?? st.getState().docOf(args.dragIds[0])?.root.id;
+      if (target) st.getState().move(args.dragIds, target, args.index);
     },
-    [doc, st],
+    [st],
   );
 
   const onRename = useCallback(
@@ -164,14 +175,17 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
   );
 
   // Where a paste/new-folder should land: a selected container, else the parent
-  // of the selection, else the document root.
-  const containerTarget = useCallback((): string => {
-    const sel = st.getState().selection[0];
-    if (!sel) return doc.root.id;
+  // of the selection, else the selection's document root, else the first doc.
+  const containerTarget = useCallback((): string | undefined => {
+    const s = st.getState();
+    const sel = s.selection[0];
+    if (!sel) return s.docs[0]?.root.id;
+    const doc = s.docOf(sel);
+    if (!doc) return s.docs[0]?.root.id;
     const node = doc.nodeById(sel);
     if (node && doc.isContainer(node)) return node.id;
     return doc.parentOf(sel)?.id ?? doc.root.id;
-  }, [doc, st]);
+  }, [st]);
 
   const openMenu = useCallback(
     (e: React.MouseEvent, nodeId: string) => {
@@ -189,9 +203,10 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
     (action: string) => {
       const s = st.getState();
       const sel = s.selection;
+      const target = containerTarget();
       switch (action) {
         case 'newFolder':
-          s.createFolder(containerTarget());
+          if (target) s.createFolder(target);
           break;
         case 'rename': {
           const n = treeRef.current?.get(menu!.nodeId);
@@ -208,12 +223,27 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
           s.copy(sel);
           break;
         case 'paste':
-          s.paste(containerTarget());
+          if (target) s.paste(target);
           break;
+        case 'save':
+        case 'saveAs': {
+          const doc = s.docs.find((d) => d.root.id === menu!.nodeId);
+          if (doc) (action === 'save' ? onSave : onSaveAs)(doc.id);
+          break;
+        }
+        case 'close': {
+          const doc = s.docs.find((d) => d.root.id === menu!.nodeId);
+          if (doc) {
+            if (!doc.dirty || window.confirm('Close this file and discard unsaved changes?')) {
+              s.closeDoc(doc.id);
+            }
+          }
+          break;
+        }
       }
       closeMenu();
     },
-    [menu, containerTarget, closeMenu, st],
+    [menu, containerTarget, closeMenu, st, onSave, onSaveAs],
   );
 
   const onKeyDown = useCallback(
@@ -226,7 +256,10 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
         }
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') s.copy(s.selection);
       else if ((e.metaKey || e.ctrlKey) && e.key === 'x') s.cut(s.selection);
-      else if ((e.metaKey || e.ctrlKey) && e.key === 'v') s.paste(containerTarget());
+      else if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        const t = containerTarget();
+        if (t) s.paste(t);
+      }
     },
     [containerTarget, st],
   );
@@ -234,7 +267,14 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
   return (
     <div className="tree-panel" onKeyDown={onKeyDown} onClick={closeMenu}>
       <div className="tree-toolbar">
-        <button title="New folder" onClick={() => st.getState().createFolder(containerTarget())}>
+        <button
+          title="New folder"
+          disabled={docs.length === 0}
+          onClick={() => {
+            const t = containerTarget();
+            if (t) st.getState().createFolder(t);
+          }}
+        >
           ＋📁
         </button>
         <button
@@ -272,23 +312,39 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
       </RowCtx.Provider>
       </div>
 
-      {menu && (
-        <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
-          <li onClick={() => menuAction('newFolder')}>New Folder</li>
-          <li onClick={() => menuAction('rename')}>Rename</li>
-          <li className="sep" />
-          <li onClick={() => menuAction('cut')}>Cut</li>
-          <li onClick={() => menuAction('copy')}>Copy</li>
-          <li
-            className={doc.clipboardSize ? '' : 'disabled'}
-            onClick={() => doc.clipboardSize && menuAction('paste')}
-          >
-            Paste
-          </li>
-          <li className="sep" />
-          <li onClick={() => menuAction('delete')}>Delete</li>
-        </ul>
-      )}
+      {menu &&
+        (() => {
+          const isRoot = docs.some((d) => d.root.id === menu.nodeId);
+          const menuDoc = docs.find((d) => d.nodeById(menu.nodeId));
+          const canPaste = !!menuDoc && menuDoc.clipboardSize > 0;
+          return (
+            <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+              {isRoot && (
+                <>
+                  <li onClick={() => menuAction('save')}>Save</li>
+                  <li onClick={() => menuAction('saveAs')}>Save As…</li>
+                  <li onClick={() => menuAction('close')}>Close File</li>
+                  <li className="sep" />
+                </>
+              )}
+              <li onClick={() => menuAction('newFolder')}>New Folder</li>
+              <li onClick={() => menuAction('rename')}>Rename</li>
+              <li className="sep" />
+              <li onClick={() => menuAction('cut')}>Cut</li>
+              <li onClick={() => menuAction('copy')}>Copy</li>
+              <li
+                className={canPaste ? '' : 'disabled'}
+                onClick={() => canPaste && menuAction('paste')}
+              >
+                Paste
+              </li>
+              <li className="sep" />
+              <li onClick={() => menuAction('delete')}>
+                {isRoot ? 'Close File' : 'Delete'}
+              </li>
+            </ul>
+          );
+        })()}
     </div>
   );
 }

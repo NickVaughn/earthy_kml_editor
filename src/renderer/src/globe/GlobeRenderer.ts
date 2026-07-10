@@ -16,7 +16,7 @@ import {
   defined,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
-import type { Position, Geometry } from '@renderer/model/types';
+import type { Position, Geometry, KmlNode } from '@renderer/model/types';
 import { buildScene, type SceneHandle } from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
@@ -30,7 +30,7 @@ const SELECT_COLOR = Color.fromCssColorString('#00e5ff');
 
 export class GlobeRenderer {
   readonly viewer: Viewer;
-  private doc: KmlDocument | null = null;
+  private docs: KmlDocument[] = [];
   private scene: SceneHandle | null = null;
   private handler: ScreenSpaceEventHandler;
   private selectionLayer = new PrimitiveCollection();
@@ -99,28 +99,37 @@ export class GlobeRenderer {
     this.viewer.imageryLayers.addImageryProvider(provider);
   }
 
-  /** Load a new document: build the scene and frame it. */
-  setDocument(doc: KmlDocument): void {
-    this.doc = doc;
-    this.rebuildScene();
-    this.clearSelection();
-    this.zoomToAll();
+  private nodeById(id: string): KmlNode | undefined {
+    for (const d of this.docs) {
+      const n = d.nodeById(id);
+      if (n) return n;
+    }
+    return undefined;
   }
 
-  /** Rebuild the scene for the current document after an edit, keeping the camera. */
+  /** Replace the set of open documents: rebuild the scene and frame everything. */
+  setDocuments(docs: KmlDocument[], frame = true): void {
+    this.docs = docs;
+    this.rebuildScene();
+    this.clearSelection();
+    if (frame) this.zoomToAll();
+  }
+
+  /** Rebuild the scene after an edit, keeping the camera. */
   rebuild(): void {
-    if (!this.doc) return;
     this.rebuildScene();
   }
 
   private rebuildScene(): void {
-    if (!this.doc) return;
     this.scene?.dispose();
     const t0 = performance.now();
-    this.scene = buildScene(this.viewer, this.doc);
+    this.scene = buildScene(this.viewer, this.docs);
     const ms = performance.now() - t0;
+    const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
     console.info(
-      `[nge] scene built: ${this.doc.stats().features} features in ${ms.toFixed(0)}ms`,
+      `[nge] scene built: ${features} features (${this.docs.length} doc${
+        this.docs.length === 1 ? '' : 's'
+      }) in ${ms.toFixed(0)}ms`,
     );
   }
 
@@ -128,11 +137,13 @@ export class GlobeRenderer {
     this.scene?.setNodeShow(id, show);
   }
 
-  /** Re-apply effective visibility for a node and its descendants after a toggle. */
+  /** Re-apply effective visibility across all documents after a toggle. */
   refreshVisibility(): void {
-    if (!this.doc || !this.scene) return;
-    for (const node of this.doc.placemarksUnder()) {
-      this.scene.setNodeShow(node.id, this.doc.isEffectivelyVisible(node));
+    if (!this.scene) return;
+    for (const doc of this.docs) {
+      for (const node of doc.placemarksUnder()) {
+        this.scene.setNodeShow(node.id, doc.isEffectivelyVisible(node));
+      }
     }
   }
 
@@ -164,9 +175,8 @@ export class GlobeRenderer {
 
   setSelection(nodeIds: string[]): void {
     this.clearSelection();
-    if (!this.doc) return;
     for (const id of nodeIds) {
-      const node = this.doc.nodeById(id);
+      const node = this.nodeById(id);
       if (!node?.geometry) continue;
       this.drawSelectionGeometry(node.geometry);
     }
@@ -198,7 +208,7 @@ export class GlobeRenderer {
   /** Begin vertex editing of a node's geometry. Hides its batched render. */
   startEdit(nodeId: string, onCommit: (g: Geometry) => void): void {
     this.cancelTool();
-    const node = this.doc?.nodeById(nodeId);
+    const node = this.nodeById(nodeId);
     if (!node?.geometry) return;
     this.clearSelection();
     this.scene?.setNodeShow(nodeId, false); // hide static copy while editing

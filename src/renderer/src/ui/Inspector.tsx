@@ -6,13 +6,13 @@ import { useStore } from '@renderer/state/store';
  */
 export function Inspector(): JSX.Element | null {
   const selection = useStore((s) => s.selection);
-  const doc = useStore((s) => s.doc);
+  const docOf = useStore((s) => s.docOf);
   const revision = useStore((s) => s.revision);
   const rename = useStore((s) => s.rename);
   const setDescription = useStore((s) => s.setDescription);
   void revision; // re-render on model changes
 
-  const node = selection.length === 1 ? doc.nodeById(selection[0]) : undefined;
+  const node = selection.length === 1 ? docOf(selection[0])?.nodeById(selection[0]) : undefined;
   if (!node || node.type !== 'Placemark') return null;
 
   return (

@@ -30,6 +30,8 @@ function geometryKinds(g: Geometry, into: Set<string> = new Set()): Set<string> 
  * (load, traverse, resolve styles, serialize). Phase 2 adds mutation + undo.
  */
 export class KmlDocument {
+  /** Stable id for this open document (workspace tracking, multi-doc). */
+  readonly id = nextId();
   data: KmlDocumentData;
   /** Source file path (null for unsaved). */
   path: string | null = null;
@@ -344,7 +346,7 @@ export class KmlDocument {
     parentId: string | null,
     geometry: Geometry,
     name = 'New Placemark',
-    styleUrl?: string,
+    inlineStyle?: KmlStyle,
   ): string {
     let parent = parentId ? this.nodeById(parentId) : this.data.root;
     if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
@@ -358,7 +360,7 @@ export class KmlDocument {
       unknownChildren: [],
       attrs: {},
       geometry: structuredClone(geometry),
-      styleUrl,
+      inlineStyle: inlineStyle ? structuredClone(inlineStyle) : undefined,
     };
     const container = parent;
     this.structuralEdit('Add Feature', [container.id], () => {

@@ -3,22 +3,19 @@ import { BASEMAPS } from '@renderer/globe/imagery';
 
 interface Props {
   onOpen: () => void;
-  onSave: () => void;
-  onSaveAs: () => void;
   onChangeBasemap: (id: string) => void;
 }
 
-export function Toolbar({ onOpen, onSave, onSaveAs, onChangeBasemap }: Props): JSX.Element {
+export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
   const settings = useStore((s) => s.settings);
   const hasGoogleKey = useStore((s) => s.hasGoogleKey);
-  const dirty = useStore((s) => s.dirty);
-  const filePath = useStore((s) => s.filePath);
+  const docCount = useStore((s) => s.docs.length);
   const mode = useStore((s) => s.interactionMode);
   const setMode = useStore((s) => s.setMode);
   const selection = useStore((s) => s.selection);
-  const doc = useStore((s) => s.doc);
+  const docOf = useStore((s) => s.docOf);
 
-  const selNode = selection.length === 1 ? doc.nodeById(selection[0]) : undefined;
+  const selNode = selection.length === 1 ? docOf(selection[0])?.nodeById(selection[0]) : undefined;
   const canEdit = !!(selNode?.type === 'Placemark' && selNode.geometry);
 
   const tool = (m: InteractionMode, label: string, title: string, disabled = false) => (
@@ -32,17 +29,14 @@ export function Toolbar({ onOpen, onSave, onSaveAs, onChangeBasemap }: Props): J
     </button>
   );
 
-  const fileName = filePath ? filePath.split('/').pop() : 'Untitled';
-
   return (
     <div className="toolbar">
       <div className="toolbar-left">
         <button onClick={onOpen}>Open…</button>
-        <button onClick={onSave}>Save</button>
-        <button onClick={onSaveAs}>Save As…</button>
         <span className="filename">
-          {fileName}
-          {dirty ? ' •' : ''}
+          {docCount === 0
+            ? 'No files open'
+            : `${docCount} file${docCount === 1 ? '' : 's'} — right-click a file to save`}
         </span>
       </div>
       <div className="toolbar-tools">
