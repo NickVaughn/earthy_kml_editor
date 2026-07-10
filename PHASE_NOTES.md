@@ -80,6 +80,18 @@ The reason the app exists: bulk style editing + native folder management.
 
 **Not verified headlessly:** live drag-drop and style-panel DOM interactions (need a GUI session or Playwright). Model logic beneath them is unit-tested. Verify manually with `npm run dev`.
 
+## Phase 2 fixes (post-review on real data)
+
+Testing against a real 9.7 MB survey KML (`hawaii_may26_campaign.kml`, Schema + BalloonStyle + SchemaData, 191 placemarks) surfaced three issues, all fixed:
+
+1. **SchemaData/BalloonStyle balloons.** Balloons showed nothing for features whose attributes live in `<ExtendedData><SchemaData>` with a `<BalloonStyle>` `$[schema/field]` template (no `<description>`). Now: ExtendedData parsed into name/value fields; BalloonStyle `<text>` extracted (display-only, `raw` still round-trips); `resolveBalloonHtml` substitutes `$[name]`/`$[description]`/`$[field]`/`$[schema/field]` entities (HTML-escaped), with a default attribute table fallback. `model/balloon.ts` + tests.
+2. **Polygon interiors not pickable.** Only the outline polyline was pickable; outline-only polygons (fill off) had no interior geometry. Now the fill geometry is always created (rendered transparent when fill is off) so interior clicks register.
+3. **Drag-drop depth ambiguity.** The drop indicator sat ~16 px left of the checkbox column (our rows have a twisty before the checkbox), so "into folder" looked like "sibling." Custom `renderCursor` offsets the line to align with the checkbox column at the target depth. *(Visual — verify manually.)*
+
+**Two round-trip bugs the real file caught** that synthetic fixtures missed (both fixed, `hawaii` now in the round-trip suite):
+- `Writer.raw` re-indented every line of a raw block, so multi-line CDATA (the HTML balloon template) grew indentation each save — broke idempotency. Now indents only the first line.
+- `<open>0</open>` (folder collapsed) was dropped on save (only truthy `open` was emitted), losing folder state. Now emitted whenever defined.
+
 ## How to run
 
 - `npm run dev` — dev server + Electron with HMR.

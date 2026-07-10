@@ -124,6 +124,23 @@ body,
   min-height: 0;
   overflow: hidden;
 }
+.drop-cursor {
+  display: flex;
+  align-items: center;
+  z-index: 2;
+}
+.drop-cursor-line {
+  flex: 1;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.drop-cursor-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--accent);
+}
 .tree-rename {
   background: var(--bg);
   color: var(--text);

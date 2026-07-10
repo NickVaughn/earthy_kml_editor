@@ -102,6 +102,11 @@ export interface KmlStyle {
   label?: LabelStyle;
   line?: LineStyle;
   poly?: PolyStyle;
+  /**
+   * BalloonStyle <text> template, extracted for display. Serialization still
+   * comes from `raw`, so this is display-only (not written back).
+   */
+  balloonText?: string;
   /** Unmodeled sub-styles (BalloonStyle, ListStyle, …) preserved verbatim. */
   raw?: string[];
 }
@@ -148,7 +153,8 @@ export interface KmlNode {
   inlineStyleMap?: KmlStyleMap;
   /** Container-level shared styles (Document/Folder), in document order. */
   styles?: SharedStyleEntry[];
-  extendedData?: { raw: string }; // preserved verbatim for now (Phase 4 will parse)
+  /** ExtendedData: raw XML for round-trip + parsed name/value fields for display. */
+  extendedData?: { raw: string; fields?: ExtendedDataField[] };
 
   /** For GroundOverlay / ScreenOverlay / NetworkLink: the whole element as raw XML. */
   rawElement?: string;
@@ -159,9 +165,17 @@ export interface KmlNode {
   attrs: Record<string, string>;
 }
 
+/** One name/value pair from a placemark's ExtendedData (Data or SchemaData). */
+export interface ExtendedDataField {
+  name: string;
+  value: string;
+}
+
 export interface KmlDocumentData {
   /** The root node (a Document or, for headless KML, a synthetic container). */
   root: KmlNode;
+  /** Schema SimpleField name → displayName, for default ExtendedData tables. */
+  schemaDisplayNames?: Map<string, string>;
   /** Top-level shared styles/maps by id (without leading '#'). */
   sharedStyles: Map<string, KmlStyle>;
   sharedStyleMaps: Map<string, KmlStyleMap>;

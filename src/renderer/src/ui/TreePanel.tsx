@@ -13,6 +13,31 @@ import type { KmlNode } from '@renderer/model/types';
 
 const RowCtx = createContext<(e: React.MouseEvent, id: string) => void>(() => {});
 
+// Horizontal offset (px) from a row's indent edge to its checkbox: the twisty
+// (14px) plus the checkbox margin. The drop cursor is shifted by this so the
+// line left-aligns with the checkboxes at the target depth, making "into folder"
+// vs "sibling" unambiguous.
+const CHECKBOX_OFFSET = 16;
+
+/** Custom drop indicator aligned to the checkbox column. */
+function MoveCursor({ top, left, indent }: { top: number; left: number; indent: number }): JSX.Element {
+  return (
+    <div
+      className="drop-cursor"
+      style={{
+        position: 'absolute',
+        pointerEvents: 'none',
+        top: top - 1,
+        left: left + CHECKBOX_OFFSET,
+        right: indent,
+      }}
+    >
+      <div className="drop-cursor-dot" />
+      <div className="drop-cursor-line" />
+    </div>
+  );
+}
+
 interface Props {
   onFlyTo: (id: string) => void;
   onOpenBalloon: (id: string) => void;
@@ -233,6 +258,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
           height={treeHeight}
           rowHeight={26}
           indent={16}
+          renderCursor={MoveCursor}
           onSelect={(nodes) => setSelection(nodes.map((n) => n.data.id))}
           onMove={onMove}
           onRename={onRename}

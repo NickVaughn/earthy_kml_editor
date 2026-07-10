@@ -32,9 +32,10 @@ class Writer {
     return '  '.repeat(this.depth);
   }
   raw(xml: string): void {
-    // Re-indent a raw block minimally by prefixing the current pad on each line.
-    const lines = xml.split('\n');
-    for (const line of lines) this.parts.push(this.pad() + line);
+    // Raw blocks are single-line after whitespace-stripping, EXCEPT for verbatim
+    // newlines inside CDATA/text content. Indent only the first line; leave any
+    // embedded content untouched so re-indentation stays idempotent.
+    this.parts.push(this.pad() + xml);
   }
   open(tag: string, attrs?: Record<string, string>): void {
     const a = attrs
@@ -187,7 +188,7 @@ function writeGeometry(w: Writer, g: Geometry): void {
 function writeCommonHead(w: Writer, node: KmlNode): void {
   if (node.name) w.leaf('name', node.name);
   if (node.visible === false) w.leaf('visibility', '0');
-  if (node.open) w.leaf('open', '1');
+  if (node.open !== undefined) w.leaf('open', node.open ? '1' : '0');
   if (node.styleUrl !== undefined) w.leaf('styleUrl', node.styleUrl);
   if (node.description !== undefined) {
     if (node.descriptionCdata) w.cdata('description', node.description);

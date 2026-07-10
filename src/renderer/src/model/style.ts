@@ -32,6 +32,7 @@ export function mergeStyles(base?: KmlStyle, over?: KmlStyle): KmlStyle {
     label: mergeSub<LabelStyle>(base?.label, over?.label),
     line: mergeSub<LineStyle>(base?.line, over?.line),
     poly: mergeSub<PolyStyle>(base?.poly, over?.poly),
+    balloonText: over?.balloonText ?? base?.balloonText,
   };
 }
 

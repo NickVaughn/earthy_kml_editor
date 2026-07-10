@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
+import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { TreePanel } from './TreePanel';
 import { StylePanel } from './StylePanel';
 import { Toolbar } from './Toolbar';
@@ -177,6 +178,9 @@ export function App(): JSX.Element {
   const balloonNode = store.balloonNodeId
     ? store.doc.nodeById(store.balloonNodeId)
     : null;
+  const balloonHtml = balloonNode
+    ? resolveBalloonHtml(store.doc.data, balloonNode)
+    : '';
 
   return (
     <div className="app">
@@ -199,6 +203,7 @@ export function App(): JSX.Element {
           {balloonNode && (
             <Balloon
               node={balloonNode}
+              html={balloonHtml}
               resources={store.doc.resources}
               onClose={() => useStore.getState().openBalloon(null)}
             />

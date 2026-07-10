@@ -149,22 +149,24 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
         accum(node.id, outer);
         const holes = g.innerBoundaries.map((r) => new PolygonHierarchy(toCartesians(r)));
         const fill = style.poly?.fill !== false;
-        if (fill) {
-          const instance = new GeometryInstance({
+        // Always add the fill geometry so the polygon INTERIOR is pickable, even
+        // for outline-only polygons — render it transparent when fill is off.
+        const fillColor = fill
+          ? kmlToCesium(style.poly?.color, DEFAULT_FILL)
+          : Color.TRANSPARENT;
+        polygonInstances.push(
+          new GeometryInstance({
             geometry: new PolygonGeometry({
               polygonHierarchy: new PolygonHierarchy(outer, holes),
               perPositionHeight: false,
             }),
             attributes: {
-              color: ColorGeometryInstanceAttribute.fromColor(
-                kmlToCesium(style.poly?.color, DEFAULT_FILL),
-              ),
+              color: ColorGeometryInstanceAttribute.fromColor(fillColor),
               show: new ShowGeometryInstanceAttribute(startVisible),
             },
             id: node.id,
-          });
-          polygonInstances.push(instance);
-        }
+          }),
+        );
         if (style.poly?.outline !== false) {
           const ring = [...outer, outer[0]];
           const outline = polylines.add({

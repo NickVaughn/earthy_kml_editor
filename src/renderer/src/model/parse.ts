@@ -17,6 +17,7 @@ import type {
   KmlStyle,
   KmlStyleMap,
   SharedStyleEntry,
+  ExtendedDataField,
   Geometry,
   Position,
   AltitudeMode,
@@ -71,6 +72,27 @@ function parseCoordinates(text: string): Position[] {
     }
   }
   return out;
+}
+
+function parseExtendedDataFields(extEl: Element): ExtendedDataField[] {
+  const fields: ExtendedDataField[] = [];
+  for (const c of childElements(extEl)) {
+    const tag = localName(c);
+    if (tag === 'Data') {
+      fields.push({
+        name: c.getAttribute('name') ?? '',
+        value: childText(c, 'value') ?? '',
+      });
+    } else if (tag === 'SchemaData') {
+      for (const sd of childrenNamed(c, 'SimpleData')) {
+        fields.push({
+          name: sd.getAttribute('name') ?? '',
+          value: (sd.textContent ?? '').trim(),
+        });
+      }
+    }
+  }
+  return fields;
 }
 
 function altMode(el: Element): AltitudeMode {
@@ -177,6 +199,11 @@ function parseStyle(el: Element): KmlStyle {
         };
         break;
       default:
+        if (localName(c) === 'BalloonStyle') {
+          // Extract the <text> template for display; raw still round-trips it.
+          const textEl = firstChild(c, 'text');
+          if (textEl) style.balloonText = textEl.textContent ?? '';
+        }
         raw.push(serializeStripped(c)); // BalloonStyle, ListStyle, …
     }
   }
@@ -224,7 +251,12 @@ function parseCommon(
   node.styleUrl = childText(el, 'styleUrl');
 
   const extEl = firstChild(el, 'ExtendedData');
-  if (extEl) node.extendedData = { raw: serializeStripped(extEl) };
+  if (extEl) {
+    node.extendedData = {
+      raw: serializeStripped(extEl),
+      fields: parseExtendedDataFields(extEl),
+    };
+  }
 
   // Preserve unmodeled attributes (id handled by caller).
   const attrs = el.attributes;
@@ -257,6 +289,7 @@ function parseContainer(el: Element, doc: KmlDocumentData): KmlNode {
     if ((tag === 'Style' || tag === 'StyleMap') && c.getAttribute('id')) {
       (node.styles ??= []).push(registerShared(c, doc));
     } else {
+      if (tag === 'Schema') captureSchema(c, doc);
       node.unknownChildren.push(serializeStripped(c));
     }
   });
@@ -330,6 +363,15 @@ function parseOverlayLike(el: Element): KmlNode {
  * document's resolver maps, and return an entry to store on the owning node so
  * the serializer re-emits it from the model (making it editable).
  */
+/** Capture a <Schema>'s SimpleField display names for default ExtendedData tables. */
+function captureSchema(el: Element, doc: KmlDocumentData): void {
+  doc.schemaDisplayNames ??= new Map();
+  for (const sf of childrenNamed(el, 'SimpleField')) {
+    const name = sf.getAttribute('name');
+    if (name) doc.schemaDisplayNames.set(name, childText(sf, 'displayName') ?? name);
+  }
+}
+
 function registerShared(el: Element, doc: KmlDocumentData): SharedStyleEntry {
   const id = el.getAttribute('id');
   if (localName(el) === 'Style') {

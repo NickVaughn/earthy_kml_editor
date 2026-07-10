@@ -4,7 +4,12 @@ import { serializeKml } from '@renderer/model/serialize';
 import { KmlDocument } from '@renderer/model/document';
 import { fixture, generatePolygonKml } from './helpers';
 
-const FIXTURES = ['simple.kml', 'styles-torture.kml', 'unknown-extensions.kml'];
+const FIXTURES = [
+  'simple.kml',
+  'styles-torture.kml',
+  'unknown-extensions.kml',
+  'hawaii_may26_campaign.kml', // real-world: Schema, BalloonStyle, SchemaData, 191 placemarks
+];
 
 /** Strip internal ids (which are regenerated each parse) for structural compare. */
 function normalize(node: unknown): unknown {
