@@ -1,6 +1,6 @@
 import {
   Viewer,
-  Primitive,
+  GroundPrimitive,
   GeometryInstance,
   PolygonGeometry,
   PolygonHierarchy,
@@ -195,10 +195,14 @@ export function buildScene(viewer: Viewer, doc: KmlDocument): SceneHandle {
     addGeometry(node, node.geometry, visible);
   }
 
-  // Build the single batched polygon primitive.
-  let polygonPrimitive: Primitive | null = null;
+  // Build the batched polygon fill as a GroundPrimitive. Draping the fill on
+  // the globe surface (rather than a flat Primitive coplanar with the ellipsoid)
+  // avoids z-fighting AND makes the polygon INTERIOR reliably pickable via
+  // classification — a plain Primitive at height 0 loses the depth test to the
+  // globe, so interior picks returned the globe instead of the feature.
+  let polygonPrimitive: GroundPrimitive | null = null;
   if (polygonInstances.length > 0) {
-    polygonPrimitive = new Primitive({
+    polygonPrimitive = new GroundPrimitive({
       geometryInstances: polygonInstances,
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
       releaseGeometryInstances: false,

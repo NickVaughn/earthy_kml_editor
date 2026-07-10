@@ -257,7 +257,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon }: Props): JSX.Element {
           width="100%"
           height={treeHeight}
           rowHeight={26}
-          indent={16}
+          indent={22}
           renderCursor={MoveCursor}
           onSelect={(nodes) => setSelection(nodes.map((n) => n.data.id))}
           onMove={onMove}
