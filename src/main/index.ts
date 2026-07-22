@@ -67,6 +67,9 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+    // Give the page keyboard focus immediately, so shortcuts (u/n/…) work on
+    // fresh launch without first clicking into the window or opening a file.
+    mainWindow?.webContents.focus();
     if (pendingOpenPath) {
       mainWindow?.webContents.send('open-requested', pendingOpenPath);
       pendingOpenPath = null;
