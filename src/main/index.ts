@@ -14,6 +14,7 @@ import {
   getRecentFiles,
   pushRecentFile,
 } from './settings';
+import { inspectVector, convertVector, inspectRaster, shutdownGdal } from './gdal';
 import type { SaveRequest, GoogleMapType } from '@shared/ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -213,6 +214,12 @@ function registerIpc(): void {
     isDirty = dirty;
   });
 
+  ipcMain.handle('gdal-inspect-vector', (_e, path: string) => inspectVector(path));
+  ipcMain.handle('gdal-convert-vector', (_e, path: string, layerName: string) =>
+    convertVector(path, layerName),
+  );
+  ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
+
   ipcMain.handle('save-file-dialog', async (_e, defaultName: string) => {
     const res = await dialog.showSaveDialog(mainWindow!, {
       defaultPath: defaultName,
@@ -266,5 +273,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  shutdownGdal();
   if (process.platform !== 'darwin') app.quit();
 });

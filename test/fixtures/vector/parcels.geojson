@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+{"type":"Feature","properties":{"NAME":"Parcel A","OWNER":"Smith","ZONE":"R1","AREA":1200},"geometry":{"type":"Polygon","coordinates":[[[-122.1,37.4],[-122.0,37.4],[-122.0,37.5],[-122.1,37.5],[-122.1,37.4]]]}},
+{"type":"Feature","properties":{"NAME":"Parcel B","OWNER":"Jones","ZONE":"C2","AREA":3400},"geometry":{"type":"Polygon","coordinates":[[[-121.9,37.4],[-121.8,37.4],[-121.8,37.5],[-121.9,37.5],[-121.9,37.4]]]}}
+]}

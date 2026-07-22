@@ -4,8 +4,10 @@ import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
+import { isVectorPath } from '@shared/gdal';
 import { TreePanel } from './TreePanel';
 import { StylePanel } from './StylePanel';
+import { ImportDialog } from './ImportDialog';
 import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -198,9 +200,26 @@ export function App(): JSX.Element {
       else if (action === 'redo') useStore.getState().redo();
     });
     const offOpen = window.api.onOpenRequested((path) => openPath(path));
-    const offDrop = window.api.onFileDrop((paths) => {
-      const geo = paths.find((p) => /\.(kml|kmz)$/i.test(p));
-      if (geo) openPath(geo);
+    const offDrop = window.api.onFileDrop(async (paths) => {
+      for (const p of paths) {
+        if (/\.(kml|kmz)$/i.test(p)) {
+          openPath(p);
+        } else if (isVectorPath(p)) {
+          // Any other OGR-readable vector: inspect, then offer import options.
+          useStore.getState().setImportStatus(`Reading ${p.split('/').pop()}…`);
+          try {
+            const info = await window.api.inspectVector(p);
+            useStore.getState().setImportStatus(null);
+            if (info.layers.length) useStore.getState().setPendingImport({ path: p, info });
+            else alert('No readable layers found in that file.');
+          } catch (err) {
+            useStore.getState().setImportStatus(null);
+            alert(`Could not read ${p.split('/').pop()}: ${
+              err instanceof Error ? err.message : String(err)
+            }`);
+          }
+        }
+      }
     });
     const offChanged = window.api.onFileChanged((path) => {
       const st = useStore.getState();
@@ -283,6 +302,8 @@ export function App(): JSX.Element {
           )}
         </div>
       </div>
+      {store.importStatus && <div className="import-status">{store.importStatus}</div>}
+      <ImportDialog />
       <StatusBar />
     </div>
   );

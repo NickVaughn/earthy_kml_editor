@@ -24,6 +24,15 @@ const api: Api = {
     return () => ipcRenderer.removeListener('menu-action', listener);
   },
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
+  inspectVector: (path) => ipcRenderer.invoke('gdal-inspect-vector', path),
+  convertVector: (path, layerName) =>
+    ipcRenderer.invoke('gdal-convert-vector', path, layerName),
+  inspectRaster: (path) => ipcRenderer.invoke('gdal-inspect-raster', path),
+  onGdalProgress: (cb) => {
+    const listener = (_e: unknown, p: import('@shared/gdal').GdalProgress) => cb(p);
+    ipcRenderer.on('gdal-progress', listener);
+    return () => ipcRenderer.removeListener('gdal-progress', listener);
+  },
   onFileChanged: (cb) => {
     const listener = (_e: unknown, path: string) => cb(path);
     ipcRenderer.on('file-externally-changed', listener);

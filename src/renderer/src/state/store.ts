@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { KmlDocument } from '@renderer/model/document';
 import type { StylePatch } from '@renderer/model/bulkStyle';
 import type { Geometry, KmlStyle } from '@renderer/model/types';
+import { geojsonToFolder, type ImportOptions } from '@renderer/model/geojson';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
+import type { VectorInfo } from '@shared/gdal';
 
 // Default style for newly drawn features: white outline (opaque), white fill
 // (~50%). aabbggrr — ffffffff = opaque white, 80ffffff = ~50% white.
@@ -47,6 +49,11 @@ interface AppState {
   interactionMode: InteractionMode;
   measureResult: string | null;
 
+  /** Vector file awaiting import options (drives the import dialog). */
+  pendingImport: { path: string; info: VectorInfo } | null;
+  /** Non-null while a GDAL job is running (shown as a status message). */
+  importStatus: string | null;
+
   settings: AppSettings;
   hasGoogleKey: boolean;
   cursorLon: number | null;
@@ -89,6 +96,12 @@ interface AppState {
   addPlacemark(geometry: Geometry, name?: string): string;
   updateGeometry(nodeId: string, geometry: Geometry): void;
   setDescription(nodeId: string, description: string): void;
+
+  // import
+  setPendingImport(v: { path: string; info: VectorInfo } | null): void;
+  setImportStatus(s: string | null): void;
+  /** Build KML from converted GeoJSON and insert it as one undoable step. */
+  importGeoJson(geojson: string, opts: ImportOptions): number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -128,6 +141,8 @@ export const useStore = create<AppState>((set, get) => {
     balloonNodeId: null,
     interactionMode: 'none',
     measureResult: null,
+    pendingImport: null,
+    importStatus: null,
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -358,6 +373,28 @@ export const useStore = create<AppState>((set, get) => {
     setDescription(nodeId, description) {
       get().docOf(nodeId)?.setDescription(nodeId, description);
       bumpMeta();
+    },
+
+    setPendingImport(v) {
+      set({ pendingImport: v });
+    },
+    setImportStatus(s) {
+      set({ importStatus: s });
+    },
+    importGeoJson(geojson, opts) {
+      // Import into the selected document, else the active one, else a new file.
+      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      let newDoc = false;
+      if (!doc) {
+        doc = get().newDocument();
+        newDoc = true;
+      }
+      const built = geojsonToFolder(geojson, opts);
+      const parentId = get().selection[0] ?? doc.root.id;
+      doc.importFolder(parentId, built.folder, built.styles);
+      set({ selection: [built.folder.id], activeDocId: doc.id });
+      if (!newDoc) bumpScene();
+      return built.featureCount;
     },
   };
 });

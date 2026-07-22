@@ -12,7 +12,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') },
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Separate entry: runs GDAL/WASM in a worker_thread so long imports
+          // never block the main process.
+          'gdal-worker': resolve(__dirname, 'src/main/gdal-worker.ts'),
+        },
       },
     },
   },

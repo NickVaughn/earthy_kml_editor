@@ -3,7 +3,13 @@ import { serializeKml } from './serialize';
 import { effectiveStyle } from './style';
 import { nextId } from './ids';
 import { applyBulkStyle, type StylePatch } from './bulkStyle';
-import type { KmlDocumentData, KmlNode, KmlStyle, Geometry } from './types';
+import type {
+  KmlDocumentData,
+  KmlNode,
+  KmlStyle,
+  Geometry,
+  SharedStyleEntry,
+} from './types';
 import { CONTAINER_TYPES } from './types';
 
 interface UndoEntry {
@@ -522,6 +528,57 @@ export class KmlDocument {
         node.geometry = structuredClone(next);
       },
     });
+  }
+
+  /**
+   * Insert an imported layer (folder + its shared styles) as ONE undoable
+   * operation. Used by the GDAL vector import.
+   */
+  importFolder(parentId: string | null, folder: KmlNode, styles: KmlStyle[]): string {
+    let parent = parentId ? this.nodeById(parentId) : this.data.root;
+    if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
+    const container = parent ?? this.data.root;
+
+    const entries: SharedStyleEntry[] = styles
+      .filter((s) => !!s.id)
+      .map((style) => ({ kind: 'Style', style }));
+
+    const addStyles = (): void => {
+      for (const e of entries) {
+        const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
+        if (e.kind === 'Style') this.data.sharedStyles.set(id, e.style);
+        (this.data.root.styles ??= []).push(e);
+        if (!this.data.sharedOrder.includes(id)) this.data.sharedOrder.push(id);
+      }
+    };
+    const removeStyles = (): void => {
+      for (const e of entries) {
+        const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
+        this.data.sharedStyles.delete(id);
+        const list = this.data.root.styles;
+        if (list) {
+          const i = list.indexOf(e);
+          if (i >= 0) list.splice(i, 1);
+        }
+        const oi = this.data.sharedOrder.indexOf(id);
+        if (oi >= 0) this.data.sharedOrder.splice(oi, 1);
+      }
+    };
+
+    addStyles();
+    const att = this.attach(container.id, undefined, [folder]);
+    this.pushExternalUndo(
+      'Import layer',
+      () => {
+        att.revert();
+        removeStyles();
+      },
+      () => {
+        addStyles();
+        att.apply();
+      },
+    );
+    return folder.id;
   }
 
   /** Set a placemark's description (inspector). Undoable. */

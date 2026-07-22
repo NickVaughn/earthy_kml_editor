@@ -6,6 +6,10 @@ directories:
 files:
   - out/**/*
   - package.json
+# GDAL's WASM/data files must live on the real filesystem — emscripten cannot
+# read them from inside the asar archive.
+asarUnpack:
+  - node_modules/gdal3.js/**
 mac:
   category: public.app-category.utilities
   target:

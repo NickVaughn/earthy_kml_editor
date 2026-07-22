@@ -66,6 +66,12 @@ export interface Api {
   onFileDrop(cb: (paths: string[]) => void): () => void;
   /** Tell main whether the document has unsaved changes (for the quit guard). */
   setDirty(dirty: boolean): void;
+
+  // ---- GDAL import (Phase 4) ----
+  inspectVector(path: string): Promise<import('./gdal').VectorInfo>;
+  convertVector(path: string, layerName: string): Promise<import('./gdal').ConvertedLayer>;
+  inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
+  onGdalProgress(cb: (p: import('./gdal').GdalProgress) => void): () => void;
   /** Fires when the currently open file is modified on disk by another program. */
   onFileChanged(cb: (path: string) => void): () => void;
 }

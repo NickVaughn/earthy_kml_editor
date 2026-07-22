@@ -298,6 +298,126 @@ body,
   z-index: 12;
 }
 
+/* Import dialog */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.modal {
+  width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+.modal-head {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.modal-summary {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 10px;
+}
+.muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+.modal .insp-row > span {
+  width: 90px;
+}
+.modal select {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+.field-list {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-height: 130px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  background: var(--bg);
+}
+.field-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.cat-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px 98px;
+  font-size: 11px;
+}
+.cat-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cat-chip i {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.modal-actions button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.modal-actions button.primary {
+  background: var(--accent);
+  color: #001;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.modal-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.import-status {
+  position: absolute;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  padding: 6px 16px;
+  font-size: 12px;
+  z-index: 150;
+}
+
 /* Style panel */
 .style-panel {
   flex: 0 0 auto;

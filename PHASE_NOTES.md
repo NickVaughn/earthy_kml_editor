@@ -133,6 +133,25 @@ Draw and reshape features directly on the globe.
 - **Polygon fill visibility fix.** GroundPrimitives were nested in a generic `PrimitiveCollection`, which prevents the classification pass from rendering them — moved to the scene's dedicated `groundPrimitives` collection. This should fix both invisible fills and interior picking. *(Needs manual confirmation — can't verify pixels headlessly.)*
 - **Cross-file drag.** Features/folders can be dragged between open documents. Implemented as detach-from-source + clone-into-target (fresh ids), with the referenced **shared styles copied along** (identical ids reused, conflicting ids imported under a fresh id) so dragged features keep their styling. Recorded as a **single compound undo entry** on the target document that reverts both sides. Known nit: undoing a cross-file move leaves the imported (now unused) style definitions in the target — harmless, and it keeps undo/redo symmetric. Covered by `test/crossdoc.test.ts`.
 
+## Phase 4 — Imports (vector done; raster next)
+
+### Feasibility (verified before building)
+gdal3.js 2.8.1 (GDAL/OGR compiled to WASM) loads in Electron's Node side: **53 vector + 128 raster drivers** incl. ESRI Shapefile, GPKG, GTiff. Confirmed it reads arbitrary filesystem paths, runs inside a `worker_thread` with the host staying responsive, and round-trips a shapefile. API notes learned the hard way:
+- `initGdalJs({ path })` resolves assets **relative to cwd** (it prefixes `./`), so an absolute path fails — the worker computes `relative(cwd, distDir)`.
+- `getInfo()` returns only layer names/counts — **no field schema**. `ogrinfo -json` fails (FS error). The schema is instead derived from a `-limit 5` sample conversion.
+- `ogr2ogr()` returns `{local, real, all[]}`; `getOutputFiles()` returns `[{path,size}]`; `getFileBytes(path)` takes the path string.
+
+### Vector import ✅
+- **`src/main/gdal-worker.ts`** — GDAL/WASM in a worker_thread. `inspectVector` (driver, layers, feature counts, geometry type, field schema with inferred types + sample values), `convertVector` (→ GeoJSON in EPSG:4326), `inspectRaster` (stub for the raster pass). `src/main/gdal.ts` is the main-process façade (lazy worker, id-correlated requests, progress forwarding).
+- **`model/geojson.ts`** — GeoJSON → KML folder: all geometry types incl. Multi\* and holes, name-from-attribute, description table from chosen attributes, **all source attributes preserved as `<ExtendedData>`**, and either one shared style or **one style per category value** (evenly-spaced hue ramp).
+- **`KmlDocument.importFolder`** inserts the folder *and* registers its shared styles as ONE undoable step (undo removes both).
+- **Import dialog** on drag-drop of any OGR vector: layer picker, name field, colour-by field with a swatch preview, and per-attribute balloon checkboxes.
+- Packaging: `asarUnpack` for gdal3.js so emscripten can read its WASM/data files.
+
+**Verified:** the *built* worker inspects and converts the shapefile fixture end-to-end (field types + samples correct, attributes preserved). 66 tests pass (9 new in `test/import.test.ts`), typecheck + build clean, app boots.
+
+**Still to do:** raster import (small → GroundOverlay, large → auto-tiled pyramid), progress/cancel UI for long jobs, and a large-shapefile perf check against the PLAN's 8,000-parcel / 30 s bar.
+
 ## How to run
 
 - `npm run dev` — dev server + Electron with HMR.
