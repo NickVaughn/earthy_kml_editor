@@ -244,6 +244,46 @@ describe('vector import', () => {
     expect(res.folder.children[0].children[0].type).toBe('Folder');
   });
 
+  it('imports layers collapsed (no auto-expanded folders)', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      groupField: 'ZONE',
+      styleMode: 'single',
+    });
+    expect(res.folder.open).toBe(false);
+    expect(res.folder.children.every((c) => c.type !== 'Folder' || c.open === false)).toBe(true);
+  });
+
+  it('applies a custom line width to single and categorized styles', () => {
+    const single = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'single',
+      lineWidth: 4,
+    });
+    expect(single.styles[0].line?.width).toBe(4);
+
+    const cats = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      lineWidth: 3,
+    });
+    expect(cats.styles.every((s) => s.line?.width === 3)).toBe(true);
+  });
+
+  it('renames group folders via groupLabels', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      groupField: 'ZONE',
+      styleMode: 'single',
+      groupLabels: { R1: 'Residential', C2: 'Commercial' },
+    });
+    expect(res.folder.children.map((c) => c.name).sort()).toEqual([
+      'Commercial',
+      'Residential',
+    ]);
+  });
+
   it('collapses to one level when group and colour fields are the same', () => {
     const res = geojsonToFolder(PARCELS, {
       layerName: 'P',

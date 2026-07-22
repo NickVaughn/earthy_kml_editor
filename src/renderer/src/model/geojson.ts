@@ -19,6 +19,8 @@ export interface ImportOptions {
   descriptionFields?: string[];
   /** Attribute whose distinct values become sub-folders. */
   groupField?: string;
+  /** Custom folder names for the group field, keyed by raw attribute value. */
+  groupLabels?: Record<string, string>;
   styleMode: 'single' | 'categorized';
   /** Attribute whose distinct values drive per-category colors. */
   categoryField?: string;
@@ -341,7 +343,7 @@ export function geojsonToFolder(
       const id = `nge-cat-${suffix}-${i}`;
       styleIdByCategory.set(spec.value, id);
       labelByCategory.set(spec.value, spec.label || spec.value || '(blank)');
-      styles.push(buildStyle(id, spec.color, spec));
+      styles.push(buildStyle(id, spec.color, { ...spec, lineWidth: opts.lineWidth }));
     });
   } else {
     const id = `nge-import-${suffix}`;
@@ -363,8 +365,8 @@ export function geojsonToFolder(
     attrs: {},
   });
 
+  // Imported layers start fully collapsed (mkFolder defaults open:false).
   const folder = mkFolder(opts.layerName || 'Imported layer');
-  folder.open = true;
 
   // Nested grouping: [group field] then [category], creating a folder per level.
   const folderCache = new Map<string, KmlNode>();
@@ -385,9 +387,11 @@ export function geojsonToFolder(
   };
 
   const folderPathFor = (props: Record<string, unknown>): string[] => {
-    const groupLabel = opts.groupField
-      ? String(props[opts.groupField] ?? '').trim() || '(blank)'
-      : null;
+    const rawGroup = opts.groupField ? String(props[opts.groupField] ?? '') : null;
+    const groupLabel =
+      rawGroup === null
+        ? null
+        : opts.groupLabels?.[rawGroup] ?? (rawGroup.trim() || '(blank)');
     const catValue = categorized ? String(props[opts.categoryField!] ?? '') : null;
     const catLabel =
       catFolders && catValue !== null
