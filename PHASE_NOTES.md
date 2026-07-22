@@ -131,6 +131,7 @@ Draw and reshape features directly on the globe.
 - **Empty workspace supported** — no doc open is a valid state; drawing a feature with nothing open creates a fresh Untitled doc.
 - **Default feature style** is now white outline (opaque) + white fill (~50%), applied as an explicit inline style on drawn features (self-contained + editable). Render defaults for unstyled features also changed to white. (Configurable in a future settings pass.)
 - **Polygon fill visibility fix.** GroundPrimitives were nested in a generic `PrimitiveCollection`, which prevents the classification pass from rendering them — moved to the scene's dedicated `groundPrimitives` collection. This should fix both invisible fills and interior picking. *(Needs manual confirmation — can't verify pixels headlessly.)*
+- **Cross-file drag.** Features/folders can be dragged between open documents. Implemented as detach-from-source + clone-into-target (fresh ids), with the referenced **shared styles copied along** (identical ids reused, conflicting ids imported under a fresh id) so dragged features keep their styling. Recorded as a **single compound undo entry** on the target document that reverts both sides. Known nit: undoing a cross-file move leaves the imported (now unused) style definitions in the target — harmless, and it keeps undo/redo symmetric. Covered by `test/crossdoc.test.ts`.
 
 ## How to run
 

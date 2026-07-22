@@ -296,6 +296,143 @@ export class KmlDocument {
     return nodes.map((n) => n.id);
   }
 
+  // ---- cross-document transfer ---------------------------------------------
+
+  /**
+   * Remove nodes WITHOUT recording undo, returning the removed nodes plus
+   * apply/revert closures. Used to compose a cross-document move into a single
+   * undo entry (see `pushExternalUndo`).
+   */
+  detach(ids: string[]): { nodes: KmlNode[]; revert(): void; apply(): void } {
+    const records: { node: KmlNode; parent: KmlNode; index: number }[] = [];
+    for (const id of ids) {
+      const node = this.nodeById(id);
+      if (!node || node === this.data.root) continue;
+      const parent = this.parentOf(id);
+      if (!parent) continue;
+      records.push({ node, parent, index: parent.children.indexOf(node) });
+    }
+    const apply = (): void => {
+      for (const r of records) {
+        const i = r.parent.children.indexOf(r.node);
+        if (i >= 0) r.parent.children.splice(i, 1);
+      }
+      this.reindex();
+    };
+    const revert = (): void => {
+      // Re-insert in ascending original index so positions restore correctly.
+      for (const r of [...records].sort((a, b) => a.index - b.index)) {
+        r.parent.children.splice(Math.min(r.index, r.parent.children.length), 0, r.node);
+      }
+      this.reindex();
+    };
+    apply();
+    return { nodes: records.map((r) => r.node), revert, apply };
+  }
+
+  /** Insert nodes WITHOUT recording undo; counterpart to `detach`. */
+  attach(
+    parentId: string,
+    index: number | undefined,
+    nodes: KmlNode[],
+  ): { revert(): void; apply(): void } {
+    const found = this.nodeById(parentId) ?? this.data.root;
+    const container = this.isContainer(found)
+      ? found
+      : (this.parentOf(found.id) ?? this.data.root);
+    const apply = (): void => {
+      const at = Math.max(
+        0,
+        Math.min(index ?? container.children.length, container.children.length),
+      );
+      container.children.splice(at, 0, ...nodes);
+      this.reindex();
+    };
+    const revert = (): void => {
+      for (const n of nodes) {
+        const i = container.children.indexOf(n);
+        if (i >= 0) container.children.splice(i, 1);
+      }
+      this.reindex();
+    };
+    apply();
+    return { revert, apply };
+  }
+
+  /** Record an undo entry for an externally-composed operation. */
+  pushExternalUndo(label: string, undo: () => void, redo: () => void): void {
+    this.pushUndo({ label, undo, redo });
+  }
+
+  /** Deep clone a subtree with fresh internal ids (for transfer/import). */
+  cloneNode(node: KmlNode): KmlNode {
+    return this.cloneSubtree(node);
+  }
+
+  /**
+   * Copy the shared styles that `nodes` reference from `source` into this
+   * document, repointing their styleUrls. Without this, features dragged
+   * between files would lose their styling. Identical existing ids are reused;
+   * conflicting ones are imported under a fresh id.
+   */
+  importStylesFrom(source: KmlDocument, nodes: KmlNode[]): void {
+    const mapping = new Map<string, string>();
+    const localId = (url?: string): string | undefined =>
+      url && url.startsWith('#') ? url.slice(1) : undefined;
+
+    const ensure = (srcId: string): string | undefined => {
+      const seen = mapping.get(srcId);
+      if (seen) return seen;
+      const srcStyle = source.data.sharedStyles.get(srcId);
+      const srcMap = source.data.sharedStyleMaps.get(srcId);
+      if (!srcStyle && !srcMap) return undefined;
+
+      const existing =
+        this.data.sharedStyles.get(srcId) ?? this.data.sharedStyleMaps.get(srcId);
+      let targetId = srcId;
+      if (existing) {
+        if (JSON.stringify(existing) === JSON.stringify(srcStyle ?? srcMap)) {
+          mapping.set(srcId, srcId);
+          return srcId;
+        }
+        targetId = `${srcId}-${nextId()}`;
+      }
+      mapping.set(srcId, targetId); // set before recursing (cycle guard)
+
+      if (srcStyle) {
+        const clone = structuredClone(srcStyle);
+        clone.id = targetId;
+        this.data.sharedStyles.set(targetId, clone);
+        (this.data.root.styles ??= []).push({ kind: 'Style', style: clone });
+        this.data.sharedOrder.push(targetId);
+      } else if (srcMap) {
+        const clone = structuredClone(srcMap);
+        clone.id = targetId;
+        for (const pair of clone.pairs) {
+          const ref = localId(pair.styleUrl);
+          if (ref) {
+            const t = ensure(ref);
+            if (t) pair.styleUrl = `#${t}`;
+          }
+        }
+        this.data.sharedStyleMaps.set(targetId, clone);
+        (this.data.root.styles ??= []).push({ kind: 'StyleMap', map: clone });
+        this.data.sharedOrder.push(targetId);
+      }
+      return targetId;
+    };
+
+    const walkNode = (n: KmlNode): void => {
+      const ref = localId(n.styleUrl);
+      if (ref) {
+        const t = ensure(ref);
+        if (t && t !== ref) n.styleUrl = `#${t}`;
+      }
+      for (const c of n.children) walkNode(c);
+    };
+    for (const n of nodes) walkNode(n);
+  }
+
   // ---- clipboard -----------------------------------------------------------
 
   private cloneSubtree(node: KmlNode): KmlNode {

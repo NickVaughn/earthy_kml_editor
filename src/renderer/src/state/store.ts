@@ -205,13 +205,54 @@ export const useStore = create<AppState>((set, get) => {
       bumpScene();
     },
     move(ids, targetId, index) {
-      const doc = get().docOf(targetId);
-      if (!doc) return;
-      // Only move nodes that live in the same document as the target.
-      const sameDoc = ids.filter((id) => doc.nodeById(id));
-      const moved = doc.move(sameDoc, targetId, index);
-      if (moved.length) {
-        set({ selection: moved });
+      const targetDoc = get().docOf(targetId);
+      if (!targetDoc) return;
+      const sameDoc = ids.filter((id) => targetDoc.nodeById(id));
+      const crossDoc = ids.filter((id) => !targetDoc.nodeById(id));
+      const selected: string[] = [];
+
+      // Within the target document: ordinary move.
+      if (sameDoc.length) selected.push(...targetDoc.move(sameDoc, targetId, index));
+
+      // From other documents: detach there, clone in (with their shared styles),
+      // and record ONE compound undo entry on the target document.
+      if (crossDoc.length) {
+        const bySource = new Map<KmlDocument, string[]>();
+        for (const id of crossDoc) {
+          const src = get().docOf(id);
+          if (src && src !== targetDoc)
+            (bySource.get(src) ?? bySource.set(src, []).get(src)!).push(id);
+        }
+        const detaches: { doc: KmlDocument; det: ReturnType<KmlDocument['detach']> }[] = [];
+        const clones = [];
+        for (const [srcDoc, srcIds] of bySource) {
+          const det = srcDoc.detach(srcIds);
+          if (det.nodes.length === 0) continue;
+          detaches.push({ doc: srcDoc, det });
+          const cloned = det.nodes.map((n) => targetDoc.cloneNode(n));
+          targetDoc.importStylesFrom(srcDoc, cloned);
+          clones.push(...cloned);
+        }
+        if (clones.length) {
+          const att = targetDoc.attach(targetId, index, clones);
+          targetDoc.pushExternalUndo(
+            'Move between files',
+            () => {
+              att.revert();
+              for (const d of [...detaches].reverse()) d.det.revert();
+            },
+            () => {
+              for (const d of detaches) d.det.apply();
+              att.apply();
+            },
+          );
+          for (const d of detaches) d.doc.dirty = true;
+          selected.push(...clones.map((n) => n.id));
+        }
+      }
+
+      if (selected.length) {
+        set({ selection: selected, activeDocId: targetDoc.id });
         bumpScene();
       }
     },
