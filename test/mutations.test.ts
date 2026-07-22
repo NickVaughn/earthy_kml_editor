@@ -77,6 +77,25 @@ describe('structural mutations', () => {
     expect(parent2.children.some((c) => c.name === 'A polygon')).toBe(true);
   });
 
+  it('checks/unchecks a folder’s immediate children vs. its whole subtree', () => {
+    const doc = load('simple.kml');
+    const root = doc.root;
+    const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;
+    const descendants = [...doc.walk(shapes)].filter((n) => n !== shapes);
+
+    // Recursive uncheck hides every descendant of Shapes.
+    expect(doc.setChildrenVisibility(shapes.id, false, true)).toBe(true);
+    expect(descendants.every((n) => !n.visible)).toBe(true);
+    doc.undo();
+    expect(descendants.every((n) => n.visible)).toBe(true);
+
+    // Non-recursive at the root touches only direct children, not their contents.
+    const child = shapes.children[0];
+    doc.setChildrenVisibility(root.id, false, false);
+    expect(shapes.visible).toBe(false);
+    expect(child.visible).toBe(true); // grandchild untouched
+  });
+
   it('copy/paste duplicates a subtree with fresh ids', () => {
     const doc = load('simple.kml');
     const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;

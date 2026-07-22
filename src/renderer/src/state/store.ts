@@ -81,6 +81,7 @@ interface AppState {
 
   // mutations
   toggleVisibility(id: string): void;
+  setChildrenVisibility(folderId: string, visible: boolean, recurse: boolean): void;
   rename(id: string, name: string): void;
   move(ids: string[], targetId: string, index?: number): void;
   remove(ids: string[]): void;
@@ -219,6 +220,10 @@ export const useStore = create<AppState>((set, get) => {
       if (!doc || !node) return;
       doc.setVisibility(id, !node.visible);
       bumpVis();
+    },
+    setChildrenVisibility(folderId, visible, recurse) {
+      const doc = get().docOf(folderId);
+      if (doc?.setChildrenVisibility(folderId, visible, recurse)) bumpVis();
     },
     rename(id, name) {
       get().docOf(id)?.rename(id, name);

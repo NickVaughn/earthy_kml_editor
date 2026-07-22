@@ -252,6 +252,33 @@ export class KmlDocument {
     this.propEdit('Visibility', () => node.visible, (v) => (node.visible = v), visible);
   }
 
+  /**
+   * Show/hide the contents of a container as one undoable step. `recurse` false
+   * touches only the immediate children; true touches the whole subtree.
+   * Returns false if there was nothing to change.
+   */
+  setChildrenVisibility(folderId: string, visible: boolean, recurse: boolean): boolean {
+    const folder = this.nodeById(folderId);
+    if (!folder || !this.isContainer(folder)) return false;
+    const targets = recurse
+      ? [...this.walk(folder)].filter((n) => n !== folder)
+      : [...folder.children];
+    if (targets.length === 0) return false;
+    const before = targets.map((n) => n.visible);
+    const apply = (state: boolean[] | boolean): void => {
+      targets.forEach((n, i) => {
+        n.visible = typeof state === 'boolean' ? state : state[i];
+      });
+    };
+    this.pushUndo({
+      label: visible ? 'Show items' : 'Hide items',
+      undo: () => apply(before),
+      redo: () => apply(visible),
+    });
+    apply(visible);
+    return true;
+  }
+
   delete(ids: string[]): void {
     const nodes = ids
       .map((id) => this.nodeById(id))
