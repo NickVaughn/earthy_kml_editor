@@ -461,6 +461,11 @@ body,
   padding: 3px 5px;
   font-size: 12px;
 }
+.cat-row-name-static {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
 .cat-row-value {
   flex: 0 0 auto;
   max-width: 120px;

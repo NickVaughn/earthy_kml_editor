@@ -23,7 +23,7 @@ export function ImportDialog(): JSX.Element | null {
   const setImportStatus = useStore((s) => s.setImportStatus);
   const importGeoJson = useStore((s) => s.importGeoJson);
 
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [layerIdx, setLayerIdx] = useState(0);
   const [nameField, setNameField] = useState('');
   const [descFields, setDescFields] = useState<string[]>([]);
@@ -33,9 +33,12 @@ export function ImportDialog(): JSX.Element | null {
   const [fillMode, setFillMode] = useState<FillMode>('both');
   const [fillOpacity, setFillOpacity] = useState(0.5);
   const [lineOpacity, setLineOpacity] = useState(1);
+  const [lineWidth, setLineWidth] = useState(1);
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [categoryFolders, setCategoryFolders] = useState(true);
   const [editingCat, setEditingCat] = useState<number | null>(null);
+  // Custom folder names when grouping by a field other than the colour field.
+  const [groupNames, setGroupNames] = useState<{ value: string; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
   // Cache the converted GeoJSON so Back → Next doesn't re-run GDAL.
@@ -45,6 +48,13 @@ export function ImportDialog(): JSX.Element | null {
   const isPoint = !!layer?.geometryType?.includes('Point');
   const showFill = fillMode !== 'outline';
   const showOutline = fillMode !== 'fill';
+
+  // Folders come from `groupField`; colours from `categoryField`. When they
+  // differ, category labels on page 2 no longer name the folders, so folder
+  // names get their own page and page-2 labels become read-only.
+  const hasCategories = !!categoryField;
+  const needsFolderPage = !!groupField && groupField !== categoryField;
+  const folderNameEditable = !groupField || groupField === categoryField;
 
   const categoryPreview = useMemo(() => {
     if (!layer || !categoryField) return [];
@@ -63,6 +73,7 @@ export function ImportDialog(): JSX.Element | null {
     setGroupField('');
     setCategoryField('');
     setCategories([]);
+    setGroupNames([]);
     setEditingCat(null);
     cache.current = null;
   };
@@ -91,6 +102,23 @@ export function ImportDialog(): JSX.Element | null {
     }
   };
 
+  const goToFolders = async (): Promise<void> => {
+    setBusy(true);
+    setImportStatus(`Reading ${layer.name}…`);
+    try {
+      const geojson = await convert();
+      const values = distinctCategoryValues(geojson, groupField);
+      setGroupNames(values.map((value) => ({ value, label: value.trim() || '(blank)' })));
+      setImportStatus(null);
+      setStep(3);
+    } catch (err) {
+      setImportStatus(null);
+      alert(`Could not read folders: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runImport = async (): Promise<void> => {
     setBusy(true);
     setImportStatus(`Importing ${layer.name}…`);
@@ -101,14 +129,18 @@ export function ImportDialog(): JSX.Element | null {
         nameField: nameField || undefined,
         descriptionFields: descFields.length ? descFields : undefined,
         groupField: groupField || undefined,
+        groupLabels: needsFolderPage
+          ? Object.fromEntries(groupNames.map((g) => [g.value, g.label]))
+          : undefined,
         styleMode: categoryField ? 'categorized' : 'single',
         categoryField: categoryField || undefined,
-        categories: step === 2 ? categories : undefined,
+        categories: hasCategories ? categories : undefined,
         categoryFolders,
         ramp,
         fillMode,
         fillOpacity,
         lineOpacity,
+        lineWidth,
       });
       setImportStatus(`Imported ${count.toLocaleString()} features from ${layer.name}`);
       setTimeout(() => useStore.getState().setImportStatus(null), 4000);
@@ -141,7 +173,11 @@ export function ImportDialog(): JSX.Element | null {
             <span className="muted">({categories.length})</span>
           </div>
           <div className="modal-summary">
-            Rename or restyle each value. Click a swatch to edit its colours.
+            {folderNameEditable ? 'Rename or restyle' : 'Restyle'} each value. Click a swatch
+            to edit its colours.
+            {!folderNameEditable && (
+              <> Folder names are set on the next page.</>
+            )}
           </div>
 
           <label className="field-check" style={{ margin: '2px 0 8px' }}>
@@ -163,11 +199,15 @@ export function ImportDialog(): JSX.Element | null {
                 >
                   <StyleSwatch spec={cat} isPoint={isPoint} />
                 </button>
-                <input
-                  className="cat-row-name"
-                  value={cat.label}
-                  onChange={(e) => updateCat(i, { label: e.target.value })}
-                />
+                {folderNameEditable ? (
+                  <input
+                    className="cat-row-name"
+                    value={cat.label}
+                    onChange={(e) => updateCat(i, { label: e.target.value })}
+                  />
+                ) : (
+                  <span className="cat-row-name cat-row-name-static">{cat.label}</span>
+                )}
                 <span className="muted cat-row-value" title={cat.value}>
                   {cat.value || '(blank)'}
                 </span>
@@ -185,6 +225,56 @@ export function ImportDialog(): JSX.Element | null {
 
           <div className="modal-actions">
             <button onClick={() => setStep(1)} disabled={busy}>
+              ← Back
+            </button>
+            {needsFolderPage ? (
+              <button className="primary" onClick={goToFolders} disabled={busy}>
+                {busy ? 'Reading…' : 'Next: folders →'}
+              </button>
+            ) : (
+              <button className="primary" onClick={runImport} disabled={busy}>
+                {busy ? 'Importing…' : `Import ${layer.featureCount.toLocaleString()} features`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Page 3: folder names -----------------------------------------------
+  if (step === 3) {
+    return (
+      <div className="modal-backdrop" onClick={close}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-head">
+            Folders — {groupField} <span className="muted">({groupNames.length})</span>
+          </div>
+          <div className="modal-summary">
+            Rename the folder created for each value of “{groupField}”.
+          </div>
+
+          <div className="cat-list">
+            {groupNames.map((g, i) => (
+              <div key={g.value} className="cat-row">
+                <input
+                  className="cat-row-name"
+                  value={g.label}
+                  onChange={(e) =>
+                    setGroupNames((prev) =>
+                      prev.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)),
+                    )
+                  }
+                />
+                <span className="muted cat-row-value" title={g.value}>
+                  {g.value || '(blank)'}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="modal-actions">
+            <button onClick={() => setStep(hasCategories ? 2 : 1)} disabled={busy}>
               ← Back
             </button>
             <button className="primary" onClick={runImport} disabled={busy}>
@@ -316,6 +406,18 @@ export function ImportDialog(): JSX.Element | null {
             <span className="opacity-val">{Math.round(lineOpacity * 100)}%</span>
           </label>
         )}
+        <label className="insp-row">
+          <span>Line width</span>
+          <input
+            type="number"
+            min="0.5"
+            max="20"
+            step="0.5"
+            value={lineWidth}
+            onChange={(e) => setLineWidth(Math.max(0.5, Number(e.target.value) || 1))}
+          />
+          <span className="opacity-val">px</span>
+        </label>
         {showFill && (
           <label className="insp-row">
             <span>Fill</span>
@@ -357,9 +459,13 @@ export function ImportDialog(): JSX.Element | null {
           <button onClick={close} disabled={busy}>
             Cancel
           </button>
-          {categoryField ? (
+          {hasCategories ? (
             <button className="primary" onClick={goToCategories} disabled={busy}>
               {busy ? 'Reading…' : 'Next: categories →'}
+            </button>
+          ) : needsFolderPage ? (
+            <button className="primary" onClick={goToFolders} disabled={busy}>
+              {busy ? 'Reading…' : 'Next: folders →'}
             </button>
           ) : (
             <button className="primary" onClick={runImport} disabled={busy}>
