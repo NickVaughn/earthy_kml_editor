@@ -205,6 +205,9 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
       const sel = s.selection;
       const target = containerTarget();
       switch (action) {
+        case 'zoom':
+          onFlyTo(menu!.nodeId);
+          break;
         case 'newFolder':
           if (target) s.createFolder(target);
           break;
@@ -243,7 +246,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
       }
       closeMenu();
     },
-    [menu, containerTarget, closeMenu, st, onSave, onSaveAs],
+    [menu, containerTarget, closeMenu, st, onSave, onSaveAs, onFlyTo],
   );
 
   const onKeyDown = useCallback(
@@ -319,6 +322,8 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           const canPaste = !!menuDoc && menuDoc.clipboardSize > 0;
           return (
             <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+              <li onClick={() => menuAction('zoom')}>Zoom to</li>
+              <li className="sep" />
               {isRoot && (
                 <>
                   <li onClick={() => menuAction('save')}>Save</li>

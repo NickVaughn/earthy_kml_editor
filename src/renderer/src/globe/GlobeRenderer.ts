@@ -147,12 +147,30 @@ export class GlobeRenderer {
     }
   }
 
+  /** Fly to a node — a single feature, or the union of a folder/file's features. */
   flyTo(nodeId: string): void {
-    const sphere = this.scene?.bounds.get(nodeId);
-    if (sphere) {
-      this.viewer.camera.flyToBoundingSphere(sphere, {
+    if (!this.scene) return;
+    const node = this.nodeById(nodeId);
+    if (!node) return;
+
+    // Gather this node's own bounds (placemark) plus every descendant's.
+    const spheres: BoundingSphere[] = [];
+    const collect = (n: KmlNode): void => {
+      const s = this.scene!.bounds.get(n.id);
+      if (s) spheres.push(s);
+      for (const c of n.children) collect(c);
+    };
+    collect(node);
+    if (spheres.length === 0) return;
+
+    const union = spheres.reduce(
+      (acc, s) => (acc ? BoundingSphere.union(acc, s) : s.clone()),
+      null as BoundingSphere | null,
+    );
+    if (union) {
+      this.viewer.camera.flyToBoundingSphere(union, {
         duration: 0.8,
-        offset: new HeadingPitchRange(0, -CesiumMath.PI_OVER_TWO, sphere.radius * 4 + 1000),
+        offset: new HeadingPitchRange(0, -CesiumMath.PI_OVER_TWO, union.radius * 3 + 500),
       });
     }
   }
