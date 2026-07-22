@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '@renderer/state/store';
-import { categoryColor } from '@renderer/model/geojson';
+import { rampColor, RAMPS, type RampName, type FillMode } from '@renderer/model/geojson';
+
+const FILL_MODES: { id: FillMode; label: string }[] = [
+  { id: 'both', label: 'Outline + fill' },
+  { id: 'outline', label: 'Outline only' },
+  { id: 'fill', label: 'Fill only' },
+];
 
 /**
  * Options for importing an OGR vector layer: which layer, which attribute
@@ -16,10 +22,17 @@ export function ImportDialog(): JSX.Element | null {
   const [layerIdx, setLayerIdx] = useState(0);
   const [nameField, setNameField] = useState('');
   const [descFields, setDescFields] = useState<string[]>([]);
+  const [groupField, setGroupField] = useState('');
   const [categoryField, setCategoryField] = useState('');
+  const [ramp, setRamp] = useState<RampName>('category');
+  const [fillMode, setFillMode] = useState<FillMode>('both');
+  const [fillOpacity, setFillOpacity] = useState(0.5);
+  const [lineOpacity, setLineOpacity] = useState(1);
   const [busy, setBusy] = useState(false);
 
   const layer = pending?.info.layers[layerIdx];
+  const showFill = fillMode === 'fill' || fillMode === 'both';
+  const showOutline = fillMode === 'outline' || fillMode === 'both';
 
   // Distinct values preview for the chosen category field (from samples).
   const categoryPreview = useMemo(() => {
@@ -35,6 +48,7 @@ export function ImportDialog(): JSX.Element | null {
     setLayerIdx(0);
     setNameField('');
     setDescFields([]);
+    setGroupField('');
     setCategoryField('');
   };
 
@@ -47,8 +61,13 @@ export function ImportDialog(): JSX.Element | null {
         layerName: layer.name,
         nameField: nameField || undefined,
         descriptionFields: descFields.length ? descFields : undefined,
+        groupField: groupField || undefined,
         styleMode: categoryField ? 'categorized' : 'single',
         categoryField: categoryField || undefined,
+        ramp,
+        fillMode,
+        fillOpacity,
+        lineOpacity,
       });
       setImportStatus(`Imported ${count.toLocaleString()} features from ${layer.name}`);
       setTimeout(() => useStore.getState().setImportStatus(null), 4000);
@@ -108,6 +127,18 @@ export function ImportDialog(): JSX.Element | null {
         </label>
 
         <label className="insp-row">
+          <span>Group into</span>
+          <select value={groupField} onChange={(e) => setGroupField(e.target.value)}>
+            <option value="">(no sub-folders)</option>
+            {layer.fields.map((f) => (
+              <option key={f.name} value={f.name}>
+                folders by {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="insp-row">
           <span>Colour by</span>
           <select value={categoryField} onChange={(e) => setCategoryField(e.target.value)}>
             <option value="">(single colour)</option>
@@ -118,16 +149,73 @@ export function ImportDialog(): JSX.Element | null {
             ))}
           </select>
         </label>
+
+        {categoryField && (
+          <label className="insp-row">
+            <span>Ramp</span>
+            <select value={ramp} onChange={(e) => setRamp(e.target.value as RampName)}>
+              {RAMPS.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         {categoryPreview.length > 0 && (
           <div className="cat-preview">
             {categoryPreview.map((v, i) => (
               <span key={v} className="cat-chip">
-                <i style={{ background: categoryColor(i, categoryPreview.length) }} />
+                <i style={{ background: rampColor(ramp, i, categoryPreview.length) }} />
                 {v || '(blank)'}
               </span>
             ))}
             <span className="muted"> …one style per distinct value</span>
           </div>
+        )}
+
+        <label className="insp-row">
+          <span>Style</span>
+          <select
+            value={fillMode}
+            onChange={(e) => setFillMode(e.target.value as FillMode)}
+          >
+            {FILL_MODES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {showOutline && (
+          <label className="insp-row">
+            <span>Outline</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={lineOpacity}
+              onChange={(e) => setLineOpacity(Number(e.target.value))}
+            />
+            <span className="opacity-val">{Math.round(lineOpacity * 100)}%</span>
+          </label>
+        )}
+        {showFill && (
+          <label className="insp-row">
+            <span>Fill</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={fillOpacity}
+              onChange={(e) => setFillOpacity(Number(e.target.value))}
+            />
+            <span className="opacity-val">{Math.round(fillOpacity * 100)}%</span>
+          </label>
         )}
 
         <div className="insp-row insp-desc">

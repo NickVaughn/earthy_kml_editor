@@ -102,6 +102,106 @@ describe('vector import', () => {
     for (const c of colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
   });
 
+  it('groups features into sub-folders by a field', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'Parcels',
+      nameField: 'NAME',
+      groupField: 'ZONE',
+      styleMode: 'single',
+    });
+    // Two distinct ZONE values -> two sub-folders, each holding its features.
+    expect(res.featureCount).toBe(2);
+    expect(res.folder.children.every((c) => c.type === 'Folder')).toBe(true);
+    const names = res.folder.children.map((c) => c.name).sort();
+    expect(names).toEqual(['C2', 'R1']);
+    const r1 = res.folder.children.find((c) => c.name === 'R1')!;
+    expect(r1.children[0].name).toBe('Parcel A');
+  });
+
+  it('sorts group folders naturally with (blank) last', () => {
+    const gj = {
+      features: [
+        { properties: { G: 'B' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { properties: { G: '' }, geometry: { type: 'Point', coordinates: [1, 1] } },
+        { properties: { G: 'A' }, geometry: { type: 'Point', coordinates: [2, 2] } },
+      ],
+    };
+    const res = geojsonToFolder(gj as never, {
+      layerName: 'L',
+      groupField: 'G',
+      styleMode: 'single',
+    });
+    expect(res.folder.children.map((c) => c.name)).toEqual(['A', 'B', '(blank)']);
+  });
+
+  it('honours the selected colour ramp', () => {
+    const viridis = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      ramp: 'viridis',
+    });
+    const category = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      ramp: 'category',
+    });
+    expect(viridis.styles[0].poly?.color).not.toBe(category.styles[0].poly?.color);
+    // Ramps produce distinct colours per category.
+    expect(viridis.styles[0].poly?.color).not.toBe(viridis.styles[1].poly?.color);
+  });
+
+  it('applies fill mode and opacities', () => {
+    const outlineOnly = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'single',
+      fillMode: 'outline',
+      lineOpacity: 1,
+    });
+    expect(outlineOnly.styles[0].poly?.fill).toBe(false);
+    expect(outlineOnly.styles[0].poly?.outline).toBe(true);
+    expect(outlineOnly.styles[0].line?.color?.slice(0, 2)).toBe('ff'); // opaque
+
+    const fillOnly = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'single',
+      fillMode: 'fill',
+      fillOpacity: 0.25,
+    });
+    expect(fillOnly.styles[0].poly?.fill).toBe(true);
+    expect(fillOnly.styles[0].poly?.outline).toBe(false);
+    // 0.25 * 255 = 64 = 0x40
+    expect(fillOnly.styles[0].poly?.color?.slice(0, 2)).toBe('40');
+
+    const both = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'single',
+      fillMode: 'both',
+      fillOpacity: 1,
+      lineOpacity: 0.5,
+    });
+    expect(both.styles[0].poly?.fill).toBe(true);
+    expect(both.styles[0].poly?.outline).toBe(true);
+    expect(both.styles[0].poly?.color?.slice(0, 2)).toBe('ff');
+    expect(both.styles[0].line?.color?.slice(0, 2)).toBe('80'); // 0.5 -> 128
+  });
+
+  it('combines grouping with categorized colouring', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      groupField: 'OWNER',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      ramp: 'warm',
+    });
+    expect(res.folder.children.map((c) => c.name).sort()).toEqual(['Jones', 'Smith']);
+    expect(res.styles.length).toBe(2);
+    // Each grouped placemark still carries its category style.
+    const all = res.folder.children.flatMap((f) => f.children);
+    expect(all.every((p) => !!p.styleUrl)).toBe(true);
+  });
+
   it('imports into a document as one undoable step and round-trips to KML', () => {
     const doc = KmlDocument.fromKml(fixture('simple.kml'));
     const before = doc.stats().features;

@@ -361,6 +361,16 @@ body,
   gap: 4px;
   font-size: 12px;
 }
+.modal .insp-row input[type='range'] {
+  flex: 1;
+}
+.opacity-val {
+  width: 38px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
 .cat-preview {
   display: flex;
   flex-wrap: wrap;

@@ -145,7 +145,10 @@ gdal3.js 2.8.1 (GDAL/OGR compiled to WASM) loads in Electron's Node side: **53 v
 - **`src/main/gdal-worker.ts`** — GDAL/WASM in a worker_thread. `inspectVector` (driver, layers, feature counts, geometry type, field schema with inferred types + sample values), `convertVector` (→ GeoJSON in EPSG:4326), `inspectRaster` (stub for the raster pass). `src/main/gdal.ts` is the main-process façade (lazy worker, id-correlated requests, progress forwarding).
 - **`model/geojson.ts`** — GeoJSON → KML folder: all geometry types incl. Multi\* and holes, name-from-attribute, description table from chosen attributes, **all source attributes preserved as `<ExtendedData>`**, and either one shared style or **one style per category value** (evenly-spaced hue ramp).
 - **`KmlDocument.importFolder`** inserts the folder *and* registers its shared styles as ONE undoable step (undo removes both).
-- **Import dialog** on drag-drop of any OGR vector: layer picker, name field, colour-by field with a swatch preview, and per-attribute balloon checkboxes.
+- **Import dialog** on drag-drop of any OGR vector: layer picker, name field, per-attribute balloon checkboxes, plus:
+  - **Group into folders by a field** — features land in sub-folders named by that attribute's value, sorted naturally with `(blank)` last. Composes with categorized colouring.
+  - **Colour ramps** — Categorical (distinct qualitative palette), Rainbow, Viridis, Warm, Cool, Grayscale. Continuous ramps interpolate across control points; the swatch preview updates live.
+  - **Style mode + opacity** — Outline only / Fill only / Outline + fill, with an opacity slider for each part that's active (fill defaults 50%, outline 100%).
 - Packaging: `asarUnpack` for gdal3.js so emscripten can read its WASM/data files.
 
 **Verified:** the *built* worker inspects and converts the shapefile fixture end-to-end (field types + samples correct, attributes preserved). 66 tests pass (9 new in `test/import.test.ts`), typecheck + build clean, app boots.
