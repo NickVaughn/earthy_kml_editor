@@ -7,9 +7,11 @@ import {
   createContext,
   useContext,
 } from 'react';
-import { Tree, type NodeRendererProps, type NodeApi } from 'react-arborist';
+import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist';
 import { useStore } from '@renderer/state/store';
-import type { KmlNode } from '@renderer/model/types';
+import type { KmlDocument } from '@renderer/model/document';
+import type { Geometry, KmlNode } from '@renderer/model/types';
+import { kmlToCss } from '@renderer/model/colors';
 
 const RowCtx = createContext<(e: React.MouseEvent, id: string) => void>(() => {});
 
@@ -55,24 +57,74 @@ const ICON: Record<string, string> = {
   Unknown: '❓',
 };
 
-function geometryIcon(node: KmlNode): string {
-  if (node.type !== 'Placemark' || !node.geometry) return ICON[node.type] ?? '•';
-  switch (node.geometry.kind) {
-    case 'Point':
-      return '📍';
-    case 'LineString':
-      return '➰';
-    case 'Polygon':
-      return '⬡';
-    case 'MultiGeometry':
-      return '❖';
+/** Reduce a (possibly multi-) geometry to the glyph kind that best represents it. */
+function primaryKind(g: Geometry): 'Point' | 'LineString' | 'Polygon' {
+  if (g.kind === 'MultiGeometry') {
+    const kinds = g.geometries.map(primaryKind);
+    if (kinds.includes('Polygon')) return 'Polygon';
+    if (kinds.includes('LineString')) return 'LineString';
+    return 'Point';
   }
+  return g.kind;
+}
+
+/**
+ * A small swatch that mirrors the feature's effective style (colour + shape),
+ * so the tree reads like the map. Containers fall back to their emoji glyph.
+ */
+function FeatureIcon({ node, doc }: { node: KmlNode; doc?: KmlDocument }): JSX.Element {
+  if (node.type !== 'Placemark' || !node.geometry) {
+    return <span className="tree-icon">{ICON[node.type] ?? '•'}</span>;
+  }
+  const style = doc?.styleFor(node);
+  const lineColor = kmlToCss(style?.line?.color ?? 'ffffffff');
+  const kind = primaryKind(node.geometry);
+  let glyph: JSX.Element;
+  if (kind === 'Point') {
+    const fill = kmlToCss(style?.icon?.color ?? 'ffffffff');
+    glyph = <circle cx="7" cy="7" r="4" fill={fill} stroke="rgba(0,0,0,0.35)" strokeWidth="1" />;
+  } else if (kind === 'LineString') {
+    glyph = (
+      <path
+        d="M1.5 10.5 L5 4.5 L9 8 L12.5 2.5"
+        fill="none"
+        stroke={lineColor}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    );
+  } else {
+    const showFill = style?.poly?.fill !== false;
+    const showOutline = style?.poly?.outline !== false;
+    const fill = showFill ? kmlToCss(style?.poly?.color ?? '80ffffff') : 'none';
+    glyph = (
+      <rect
+        x="2"
+        y="2.5"
+        width="10"
+        height="9"
+        rx="1.5"
+        fill={fill}
+        stroke={showOutline ? lineColor : 'none'}
+        strokeWidth="1.5"
+      />
+    );
+  }
+  return (
+    <svg className="tree-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      {glyph}
+    </svg>
+  );
 }
 
 function Row({ node, style, dragHandle }: NodeRendererProps<KmlNode>): JSX.Element {
   const data = node.data;
   const selection = useStore((s) => s.selection);
   const toggleVisibility = useStore((s) => s.toggleVisibility);
+  const doc = useStore((s) => s.docOf(data.id));
+  // Re-resolve the style swatch whenever rendered content changes.
+  useStore((s) => s.sceneEpoch);
   const dirtyRoot = useStore((s) => {
     const d = s.docs.find((doc) => doc.root.id === data.id);
     return d ? d.dirty : false;
@@ -106,7 +158,7 @@ function Row({ node, style, dragHandle }: NodeRendererProps<KmlNode>): JSX.Eleme
         onClick={(e) => e.stopPropagation()}
         title="Visibility"
       />
-      <span className="tree-icon">{geometryIcon(data)}</span>
+      <FeatureIcon node={data} doc={doc} />
       {node.isEditing ? (
         <input
           className="tree-rename"
@@ -142,8 +194,31 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
   const selection = useStore((s) => s.selection);
   const setSelection = useStore((s) => s.setSelection);
   const st = useStore;
-  const treeRef = useRef<{ get(id: string): NodeApi<KmlNode> | null } | null>(null);
+  const treeRef = useRef<TreeApi<KmlNode> | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+
+  // Track which container ids we've already applied an initial open/closed state
+  // to, so re-seeding (on file open/close/new) never clobbers manual toggles.
+  const seeded = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+    let changed = false;
+    for (const d of docs) {
+      for (const n of d.walk()) {
+        if (n.type === 'Placemark' || seeded.current.has(n.id)) continue;
+        seeded.current.add(n.id);
+        // A document root defaults to open; other folders open only when the KML
+        // explicitly said so (<open>1</open>). Everything else starts collapsed.
+        const shouldOpen = d.root.id === n.id ? n.open !== false : n.open === true;
+        if (shouldOpen) {
+          tree.open(n.id, false);
+          changed = true;
+        }
+      }
+    }
+    if (changed) tree.redrawList();
+  }, [docs, docEpoch]);
 
   // Measure available height so the Tree (which needs an explicit height) fills
   // whatever space the sidebar gives it, even as the style panel appears.
@@ -199,6 +274,24 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  // Confirm before deleting real items. Root ids (close file) skip this and fall
+  // through to remove(), which runs its own discard-changes confirmation.
+  const confirmRemove = useCallback(
+    (ids: string[]) => {
+      const s = st.getState();
+      const items = ids.filter((id) => !s.isRoot(id));
+      if (items.length) {
+        const label =
+          items.length === 1
+            ? `“${s.docOf(items[0])?.nodeById(items[0])?.name || '(unnamed)'}”`
+            : `${items.length} items`;
+        if (!window.confirm(`Delete ${label}?`)) return;
+      }
+      s.remove(ids);
+    },
+    [st],
+  );
+
   const menuAction = useCallback(
     (action: string) => {
       const s = st.getState();
@@ -217,7 +310,19 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           break;
         }
         case 'delete':
-          s.remove(sel);
+          confirmRemove(sel);
+          break;
+        case 'checkAll':
+          s.setChildrenVisibility(menu!.nodeId, true, false);
+          break;
+        case 'uncheckAll':
+          s.setChildrenVisibility(menu!.nodeId, false, false);
+          break;
+        case 'checkAllRec':
+          s.setChildrenVisibility(menu!.nodeId, true, true);
+          break;
+        case 'uncheckAllRec':
+          s.setChildrenVisibility(menu!.nodeId, false, true);
           break;
         case 'cut':
           s.cut(sel);
@@ -246,16 +351,17 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
       }
       closeMenu();
     },
-    [menu, containerTarget, closeMenu, st, onSave, onSaveAs, onFlyTo],
+    [menu, containerTarget, closeMenu, confirmRemove, st, onSave, onSaveAs, onFlyTo],
   );
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const s = st.getState();
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Only the Delete key removes items — Backspace must not (too easy to hit).
+      if (e.key === 'Delete') {
         if (s.selection.length) {
           e.preventDefault();
-          s.remove(s.selection);
+          confirmRemove(s.selection);
         }
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') s.copy(s.selection);
       else if ((e.metaKey || e.ctrlKey) && e.key === 'x') s.cut(s.selection);
@@ -264,7 +370,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
         if (t) s.paste(t);
       }
     },
-    [containerTarget, st],
+    [containerTarget, confirmRemove, st],
   );
 
   return (
@@ -283,7 +389,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
         <button
           title="Delete"
           disabled={selection.length === 0}
-          onClick={() => st.getState().remove(selection)}
+          onClick={() => confirmRemove(selection)}
         >
           🗑
         </button>
@@ -296,7 +402,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           data={data}
           idAccessor="id"
           childrenAccessor={(n) => (n.type === 'Placemark' ? null : n.children)}
-          openByDefault
+          openByDefault={false}
           width="100%"
           height={treeHeight}
           rowHeight={26}
@@ -319,11 +425,22 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
         (() => {
           const isRoot = docs.some((d) => d.root.id === menu.nodeId);
           const menuDoc = docs.find((d) => d.nodeById(menu.nodeId));
+          const menuNode = menuDoc?.nodeById(menu.nodeId);
+          const isContainer = !!menuNode && !!menuDoc && menuDoc.isContainer(menuNode);
           const canPaste = !!menuDoc && menuDoc.clipboardSize > 0;
           return (
             <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
               <li onClick={() => menuAction('zoom')}>Zoom to</li>
               <li className="sep" />
+              {isContainer && (
+                <>
+                  <li onClick={() => menuAction('checkAll')}>Check all</li>
+                  <li onClick={() => menuAction('uncheckAll')}>Uncheck all</li>
+                  <li onClick={() => menuAction('checkAllRec')}>Check all (recursive)</li>
+                  <li onClick={() => menuAction('uncheckAllRec')}>Uncheck all (recursive)</li>
+                  <li className="sep" />
+                </>
+              )}
               {isRoot && (
                 <>
                   <li onClick={() => menuAction('save')}>Save</li>
