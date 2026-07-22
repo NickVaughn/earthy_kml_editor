@@ -53,6 +53,8 @@ interface AppState {
   pendingImport: { path: string; info: VectorInfo } | null;
   /** Non-null while a GDAL job is running (shown as a status message). */
   importStatus: string | null;
+  /** Keyboard-shortcut help overlay. */
+  helpOpen: boolean;
 
   settings: AppSettings;
   hasGoogleKey: boolean;
@@ -96,6 +98,8 @@ interface AppState {
   addPlacemark(geometry: Geometry, name?: string): string;
   updateGeometry(nodeId: string, geometry: Geometry): void;
   setDescription(nodeId: string, description: string): void;
+
+  setHelpOpen(v: boolean): void;
 
   // import
   setPendingImport(v: { path: string; info: VectorInfo } | null): void;
@@ -143,6 +147,7 @@ export const useStore = create<AppState>((set, get) => {
     measureResult: null,
     pendingImport: null,
     importStatus: null,
+    helpOpen: false,
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -375,6 +380,9 @@ export const useStore = create<AppState>((set, get) => {
       bumpMeta();
     },
 
+    setHelpOpen(v) {
+      set({ helpOpen: v });
+    },
     setPendingImport(v) {
       set({ pendingImport: v });
     },

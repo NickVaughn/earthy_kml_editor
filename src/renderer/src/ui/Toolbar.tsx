@@ -63,6 +63,13 @@ export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
             </option>
           ))}
         </select>
+        <button
+          className="help-btn"
+          title="Keyboard shortcuts (?)"
+          onClick={() => useStore.getState().setHelpOpen(true)}
+        >
+          ⌨
+        </button>
       </div>
     </div>
   );

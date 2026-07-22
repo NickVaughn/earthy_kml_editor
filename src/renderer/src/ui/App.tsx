@@ -5,9 +5,11 @@ import { basemapById } from '@renderer/globe/imagery';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
 import { isVectorPath } from '@shared/gdal';
+import { useKeybindings } from '@renderer/input/useKeybindings';
 import { TreePanel } from './TreePanel';
 import { StylePanel } from './StylePanel';
 import { ImportDialog } from './ImportDialog';
+import { HelpOverlay } from './HelpOverlay';
 import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -26,6 +28,7 @@ export function App(): JSX.Element {
   const globeRef = useRef<GlobeRenderer | null>(null);
 
   const store = useStore();
+  useKeybindings(globeRef);
 
   // ---- one-time globe init -------------------------------------------------
   useEffect(() => {
@@ -304,6 +307,7 @@ export function App(): JSX.Element {
       </div>
       {store.importStatus && <div className="import-status">{store.importStatus}</div>}
       <ImportDialog />
+      <HelpOverlay />
       <StatusBar />
     </div>
   );

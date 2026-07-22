@@ -2,10 +2,12 @@
 
 Items intentionally postponed. See PLAN.md §10 for the original out-of-scope list.
 
-## PLANNED: Keyboard shortcuts (camera + general)
-**Status:** designed, not built. Requested bindings: `u` = look straight down
-(nadir), `n` = rotate north-up. More to be added later, so the design is a
-declarative registry rather than a switch statement.
+## Keyboard shortcuts (camera + general)
+**Status:** BUILT. Registry at `src/renderer/src/input/commands.ts`; dispatcher
+`useKeybindings.ts`; camera actions `globe/cameraCommands.ts`; help overlay (`?`).
+Shipped bindings: `u` nadir, `n` north-up, `r` reset, `f` zoom-to-selection,
+`?` help. Add more by appending one entry to COMMANDS.
+Design notes below kept for reference.
 
 ### Structure
 - `src/renderer/src/input/commands.ts` — the registry. Adding a shortcut = adding

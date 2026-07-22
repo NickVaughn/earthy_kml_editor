@@ -5,6 +5,7 @@ import {
   ScreenSpaceEventType,
   Cartographic,
   Math as CesiumMath,
+  Cartesian2,
   Cartesian3,
   Color,
   PolylineCollection,
@@ -20,6 +21,11 @@ import type { Position, Geometry, KmlNode } from '@renderer/model/types';
 import { buildScene, type SceneHandle } from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
+import {
+  nadirOrientation,
+  northUpOrientation,
+  type Orientation,
+} from './cameraCommands';
 
 export interface GlobeHandlers {
   onPick: (nodeId: string | null) => void;
@@ -187,6 +193,42 @@ export class GlobeRenderer {
       this.viewer.camera.flyToBoundingSphere(union, {
         duration: 1.0,
         offset: new HeadingPitchRange(0, -CesiumMath.PI_OVER_TWO, union.radius * 2.5 + 1000),
+      });
+    }
+  }
+
+  /** Level the camera to look straight down at the screen-centre point. */
+  lookNadir(): void {
+    this.reorient(nadirOrientation);
+  }
+
+  /** Rotate the camera so north is up, pivoting on the screen-centre point. */
+  lookNorthUp(): void {
+    this.reorient(northUpOrientation);
+  }
+
+  private reorient(fn: (o: Orientation) => Orientation): void {
+    const cam = this.viewer.camera;
+    const scene = this.viewer.scene;
+    const canvas = scene.canvas as HTMLCanvasElement;
+    const centre = new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    const ground = cam.pickEllipsoid(centre, scene.globe.ellipsoid);
+
+    if (ground) {
+      // Pivot about the ground point under the viewport centre.
+      const range = Cartesian3.distance(cam.positionWC, ground);
+      const t = fn({ heading: cam.heading, pitch: cam.pitch, range });
+      cam.flyToBoundingSphere(new BoundingSphere(ground, 1), {
+        duration: 0.4,
+        offset: new HeadingPitchRange(t.heading, t.pitch, t.range),
+      });
+    } else {
+      // Looking at the sky/horizon: re-orient in place as a fallback.
+      const t = fn({ heading: cam.heading, pitch: cam.pitch, range: 0 });
+      cam.flyTo({
+        destination: cam.positionWC.clone(),
+        orientation: { heading: t.heading, pitch: t.pitch, roll: 0 },
+        duration: 0.4,
       });
     }
   }

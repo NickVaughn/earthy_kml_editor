@@ -298,6 +298,45 @@ body,
   z-index: 12;
 }
 
+.help-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.help-modal {
+  width: 380px;
+}
+.help-group {
+  margin: 10px 0;
+}
+.help-group-title {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+}
+.help-row kbd {
+  min-width: 26px;
+  text-align: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
 /* Import dialog */
 .modal-backdrop {
   position: fixed;
