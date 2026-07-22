@@ -77,17 +77,51 @@ describe('vector import', () => {
     expect(fields.map((f) => f.name).sort()).toEqual(['AREA', 'NAME', 'OWNER', 'ZONE']);
   });
 
-  it('creates one shared style per category when categorized', () => {
+  it('creates one shared style per category when categorized (flat)', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      categoryFolders: false, // flat: placemarks directly under the layer folder
+    });
+    expect(res.styles.length).toBe(2);
+    const urls = res.folder.children.map((c) => c.styleUrl);
+    expect(new Set(urls).size).toBe(2);
+    expect(res.styles[0].poly?.color).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('creates a sub-folder per category by default, named by value', () => {
     const res = geojsonToFolder(PARCELS, {
       layerName: 'P',
       styleMode: 'categorized',
       categoryField: 'ZONE',
     });
-    // Two distinct ZONE values -> two styles, each referenced by one feature.
+    const folders = res.folder.children.filter((c) => c.type === 'Folder');
+    expect(folders.map((f) => f.name).sort()).toEqual(['C2', 'R1']);
+    expect(folders.every((f) => f.children.length === 1)).toBe(true);
     expect(res.styles.length).toBe(2);
-    const urls = res.folder.children.map((c) => c.styleUrl);
-    expect(new Set(urls).size).toBe(2);
-    expect(res.styles[0].poly?.color).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('honours explicit category specs (labels + colours override the ramp)', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+      categories: [
+        { value: 'R1', label: 'Residential', color: '#ff0000', fillMode: 'both', fillOpacity: 0.5, lineOpacity: 1 },
+        { value: 'C2', label: 'Commercial', color: '#00ff00', fillMode: 'outline', fillOpacity: 0.5, lineOpacity: 1 },
+      ],
+    });
+    // Folders use the custom labels.
+    const names = res.folder.children.map((c) => c.name).sort();
+    expect(names).toEqual(['Commercial', 'Residential']);
+    // Colours come from the specs (aabbggrr): red R1, green C2.
+    const red = res.styles.find((s) => s.poly?.color?.endsWith('0000ff'));
+    const green = res.styles.find((s) => s.poly?.color?.endsWith('00ff00'));
+    expect(red).toBeTruthy();
+    expect(green).toBeTruthy();
+    // C2 is outline-only.
+    expect(green!.poly?.fill).toBe(false);
   });
 
   it('uses a single shared style when not categorized', () => {
@@ -187,7 +221,7 @@ describe('vector import', () => {
     expect(both.styles[0].line?.color?.slice(0, 2)).toBe('80'); // 0.5 -> 128
   });
 
-  it('combines grouping with categorized colouring', () => {
+  it('nests category folders under a separate group field', () => {
     const res = geojsonToFolder(PARCELS, {
       layerName: 'P',
       groupField: 'OWNER',
@@ -195,11 +229,32 @@ describe('vector import', () => {
       categoryField: 'ZONE',
       ramp: 'warm',
     });
+    // OWNER folders on top, ZONE folders nested, placemarks at the leaves.
     expect(res.folder.children.map((c) => c.name).sort()).toEqual(['Jones', 'Smith']);
     expect(res.styles.length).toBe(2);
-    // Each grouped placemark still carries its category style.
-    const all = res.folder.children.flatMap((f) => f.children);
-    expect(all.every((p) => !!p.styleUrl)).toBe(true);
+    const placemarks: typeof res.folder.children = [];
+    const collect = (n: (typeof res.folder.children)[number]): void => {
+      if (n.type === 'Placemark') placemarks.push(n);
+      n.children.forEach(collect);
+    };
+    res.folder.children.forEach(collect);
+    expect(placemarks.length).toBe(2);
+    expect(placemarks.every((p) => !!p.styleUrl)).toBe(true);
+    // Depth is layer > OWNER > ZONE > placemark.
+    expect(res.folder.children[0].children[0].type).toBe('Folder');
+  });
+
+  it('collapses to one level when group and colour fields are the same', () => {
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'P',
+      groupField: 'ZONE',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+    });
+    // Not double-nested: one folder per ZONE, holding the placemark directly.
+    const folders = res.folder.children.filter((c) => c.type === 'Folder');
+    expect(folders.map((f) => f.name).sort()).toEqual(['C2', 'R1']);
+    expect(folders[0].children[0].type).toBe('Placemark');
   });
 
   it('imports into a document as one undoable step and round-trips to KML', () => {

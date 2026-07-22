@@ -22,6 +22,11 @@ export interface ImportOptions {
   styleMode: 'single' | 'categorized';
   /** Attribute whose distinct values drive per-category colors. */
   categoryField?: string;
+  /** Explicit per-category styles/labels (from the fine-tune page). If absent,
+   * categories are derived from the data + ramp. */
+  categories?: CategorySpec[];
+  /** Create a sub-folder per category, named by its label (default true). */
+  categoryFolders?: boolean;
   /** Colour ramp used for categories (default 'category'). */
   ramp?: RampName;
   /** Outline only, fill only, or both (default 'both'). */
@@ -157,23 +162,75 @@ function alphaByte(opacity: number | undefined, fallback: number): number {
   return Math.max(0, Math.min(255, Math.round(opacity * 255)));
 }
 
+interface StyleParams {
+  fillMode?: FillMode;
+  fillOpacity?: number;
+  lineOpacity?: number;
+  lineWidth?: number;
+}
+
 /** Build a shared style for one colour, honouring fill mode and opacities. */
-function styleForColor(id: string, hex: string, opts: ImportOptions): KmlStyle {
-  const mode: FillMode = opts.fillMode ?? 'both';
+function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
+  const mode: FillMode = p.fillMode ?? 'both';
   const showFill = mode === 'fill' || mode === 'both';
   const showOutline = mode === 'outline' || mode === 'both';
-  const lineAlpha = alphaByte(opts.lineOpacity, 0xff);
-  const fillAlpha = alphaByte(opts.fillOpacity, 0x80);
+  const lineAlpha = alphaByte(p.lineOpacity, 0xff);
+  const fillAlpha = alphaByte(p.fillOpacity, 0x80);
   return {
     id,
     icon: { color: hexToKml(hex, lineAlpha), scale: 1 },
-    line: { color: hexToKml(hex, lineAlpha), width: opts.lineWidth ?? 2 },
+    line: { color: hexToKml(hex, lineAlpha), width: p.lineWidth ?? 2 },
     poly: {
       color: hexToKml(hex, fillAlpha),
       fill: showFill,
       outline: showOutline,
     },
   };
+}
+
+/** A per-category style + label the user can fine-tune before import. */
+export interface CategorySpec {
+  /** Raw field value this category matches. */
+  value: string;
+  /** Display name — becomes the sub-folder name. */
+  label: string;
+  color: string; // #rrggbb
+  fillMode: FillMode;
+  fillOpacity: number; // 0..1
+  lineOpacity: number; // 0..1
+}
+
+/** Seed category specs from the distinct values, using the ramp + base options. */
+export function defaultCategories(
+  values: string[],
+  opts: {
+    ramp?: RampName;
+    fillMode?: FillMode;
+    fillOpacity?: number;
+    lineOpacity?: number;
+  },
+): CategorySpec[] {
+  const ramp = opts.ramp ?? 'category';
+  return values.map((value, i) => ({
+    value,
+    label: value || '(blank)',
+    color: rampColor(ramp, i, values.length),
+    fillMode: opts.fillMode ?? 'both',
+    fillOpacity: opts.fillOpacity ?? 0.5,
+    lineOpacity: opts.lineOpacity ?? 1,
+  }));
+}
+
+/** Distinct values of a category field from converted GeoJSON (for the dialog). */
+export function distinctCategoryValues(
+  geojsonText: string | { features?: GeoJsonFeature[] },
+  field: string,
+): string[] {
+  const data =
+    typeof geojsonText === 'string'
+      ? (JSON.parse(geojsonText) as { features?: GeoJsonFeature[] })
+      : geojsonText;
+  return distinctValues(data.features ?? [], field);
 }
 
 // ---- geometry -------------------------------------------------------------
@@ -267,60 +324,83 @@ export function geojsonToFolder(
       : geojsonText;
   const features = data.features ?? [];
 
+  const categorized = opts.styleMode === 'categorized' && !!opts.categoryField;
+  const catFolders = categorized && opts.categoryFolders !== false;
+
   // Build the style set up front so placemarks can reference by styleUrl.
   const styles: KmlStyle[] = [];
   const styleIdByCategory = new Map<string, string>();
+  const labelByCategory = new Map<string, string>();
   const suffix = nextId();
 
-  if (opts.styleMode === 'categorized' && opts.categoryField) {
-    const values = distinctValues(features, opts.categoryField);
-    const ramp = opts.ramp ?? 'category';
-    values.forEach((value, i) => {
+  if (categorized) {
+    const specs =
+      opts.categories ??
+      defaultCategories(distinctValues(features, opts.categoryField!), opts);
+    specs.forEach((spec, i) => {
       const id = `nge-cat-${suffix}-${i}`;
-      styleIdByCategory.set(value, id);
-      styles.push(styleForColor(id, rampColor(ramp, i, values.length), opts));
+      styleIdByCategory.set(spec.value, id);
+      labelByCategory.set(spec.value, spec.label || spec.value || '(blank)');
+      styles.push(buildStyle(id, spec.color, spec));
     });
   } else {
     const id = `nge-import-${suffix}`;
     const base = opts.singleStyle
       ? { ...structuredClone(opts.singleStyle), id }
-      : styleForColor(id, opts.singleColor ?? '#4da6ff', opts);
+      : buildStyle(id, opts.singleColor ?? '#4da6ff', opts);
     styles.push(base);
     styleIdByCategory.set('', id);
   }
 
-  const folder: KmlNode = {
+  const mkFolder = (name: string): KmlNode => ({
     id: nextId(),
     type: 'Folder',
-    name: opts.layerName || 'Imported layer',
+    name,
     visible: true,
-    open: true,
+    open: false,
     children: [],
     unknownChildren: [],
     attrs: {},
+  });
+
+  const folder = mkFolder(opts.layerName || 'Imported layer');
+  folder.open = true;
+
+  // Nested grouping: [group field] then [category], creating a folder per level.
+  const folderCache = new Map<string, KmlNode>();
+  const ensurePath = (path: string[]): KmlNode => {
+    let parent = folder;
+    let key = '';
+    for (const name of path) {
+      key += ` ${name}`;
+      let sub = folderCache.get(key);
+      if (!sub) {
+        sub = mkFolder(name);
+        folderCache.set(key, sub);
+        parent.children.push(sub);
+      }
+      parent = sub;
+    }
+    return parent;
   };
 
-  // Optional grouping: features land in sub-folders named by a field's value.
-  const groups = new Map<string, KmlNode>();
-  const groupFolder = (props: Record<string, unknown>): KmlNode => {
-    if (!opts.groupField) return folder;
-    const raw = String(props[opts.groupField] ?? '').trim();
-    const label = raw || '(blank)';
-    let sub = groups.get(label);
-    if (!sub) {
-      sub = {
-        id: nextId(),
-        type: 'Folder',
-        name: label,
-        visible: true,
-        open: false,
-        children: [],
-        unknownChildren: [],
-        attrs: {},
-      };
-      groups.set(label, sub);
+  const folderPathFor = (props: Record<string, unknown>): string[] => {
+    const groupLabel = opts.groupField
+      ? String(props[opts.groupField] ?? '').trim() || '(blank)'
+      : null;
+    const catValue = categorized ? String(props[opts.categoryField!] ?? '') : null;
+    const catLabel =
+      catFolders && catValue !== null
+        ? labelByCategory.get(catValue) ?? (catValue || '(blank)')
+        : null;
+    // Same field for grouping and colouring: one folder level, use the label.
+    if (opts.groupField && opts.groupField === opts.categoryField && catLabel !== null) {
+      return [catLabel];
     }
-    return sub;
+    const path: string[] = [];
+    if (groupLabel !== null) path.push(groupLabel);
+    if (catLabel !== null) path.push(catLabel);
+    return path;
   };
 
   let skipped = 0;
@@ -333,16 +413,14 @@ export function geojsonToFolder(
     }
     const props = (f.properties ?? {}) as Record<string, unknown>;
     const name = opts.nameField ? String(props[opts.nameField] ?? '') : '';
-    const styleId =
-      opts.styleMode === 'categorized' && opts.categoryField
-        ? styleIdByCategory.get(String(props[opts.categoryField] ?? ''))
-        : styleIdByCategory.get('');
-
+    const styleId = categorized
+      ? styleIdByCategory.get(String(props[opts.categoryField!] ?? ''))
+      : styleIdByCategory.get('');
     const description = opts.descriptionFields?.length
       ? descriptionTable(props, opts.descriptionFields)
       : undefined;
 
-    groupFolder(props).children.push({
+    ensurePath(folderPathFor(props)).children.push({
       id: nextId(),
       type: 'Placemark',
       name,
@@ -359,17 +437,22 @@ export function geojsonToFolder(
     featureCount++;
   }
 
-  // Attach group sub-folders in natural order, with "(blank)" last.
-  if (opts.groupField) {
-    const sorted = [...groups.entries()].sort(([a], [b]) => {
-      if (a === '(blank)') return 1;
-      if (b === '(blank)') return -1;
-      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-    });
-    for (const [, sub] of sorted) folder.children.push(sub);
-  }
-
+  sortFolders(folder);
   return { folder, styles, featureCount, skipped };
+}
+
+/** Sort sub-folders naturally (with "(blank)" last), keeping placemarks after. */
+function sortFolders(node: KmlNode): void {
+  const folders = node.children.filter((c) => c.type === 'Folder');
+  if (folders.length === 0) return;
+  const rest = node.children.filter((c) => c.type !== 'Folder');
+  folders.sort((a, b) => {
+    if (a.name === '(blank)') return 1;
+    if (b.name === '(blank)') return -1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  node.children = [...folders, ...rest];
+  for (const f of folders) sortFolders(f);
 }
 
 /** Distinct values of a field across features, in first-seen order. */

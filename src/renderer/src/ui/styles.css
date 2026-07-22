@@ -382,23 +382,129 @@ body,
   border-radius: 4px;
   padding: 4px 6px;
 }
-.field-list {
+/* Balloon field picker: single vertical column with check-all actions. */
+.field-col {
   flex: 1;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  max-height: 130px;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px;
   background: var(--bg);
 }
+.field-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+  position: sticky;
+  top: -6px;
+  background: var(--bg);
+  padding-top: 2px;
+}
+.field-actions button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
 .field-check {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 12px;
+}
+
+/* Category fine-tuning list (page 2) */
+.cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--bg);
+}
+.cat-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px;
+}
+.cat-swatch-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.cat-swatch-btn:hover {
+  border-color: var(--accent);
+}
+.cat-row-name {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 12px;
+}
+.cat-row-value {
+  flex: 0 0 auto;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.cat-editor {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  width: 260px;
+  margin-top: 2px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+.cat-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.cat-editor-name {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 12px;
+}
+.cat-editor-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.cat-editor .insp-row > span {
+  width: 56px;
 }
 .modal .insp-row input[type='range'] {
   flex: 1;
