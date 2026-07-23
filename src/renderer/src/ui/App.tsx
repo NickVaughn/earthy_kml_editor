@@ -155,8 +155,13 @@ export function App(): JSX.Element {
       );
     } catch (err) {
       console.error('Basemap failed:', err);
-      // Fall back to Esri so the user is never left with a blank globe.
-      if (id !== 'esri') await globe.setBasemap(basemapById('esri').build({}));
+      // Fall back to Esri so the user is never left with a blank globe — but say
+      // so, otherwise the chosen basemap just looks identical to Esri.
+      if (id !== 'esri') {
+        const why = err instanceof Error ? err.message : String(err);
+        flash(`“${def.label}” failed to load — showing Esri World Imagery instead. ${why}`, 12000);
+        await globe.setBasemap(basemapById('esri').build({}));
+      }
     }
   }, []);
 

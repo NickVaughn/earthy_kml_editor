@@ -16,7 +16,10 @@ interface CachedSession {
 const cache = new Map<GoogleMapType, CachedSession>();
 
 export function getGoogleKey(): string | null {
-  const key = process.env.NGE_GOOGLE_MAPS_API_KEY?.trim();
+  // EARTHY_* is the current name; NGE_* still works for pre-rename setups.
+  const key = (
+    process.env.EARTHY_GOOGLE_MAPS_API_KEY ?? process.env.NGE_GOOGLE_MAPS_API_KEY
+  )?.trim();
   return key && key.length > 0 ? key : null;
 }
 
@@ -41,8 +44,11 @@ export async function getGoogleSession(
     language: 'en-US',
     region: 'US',
   };
-  // Hybrid labels over satellite: request the roadmap label layer.
-  if (mapType === 'satellite') {
+  // Google *requires* the roadmap layer with terrain ("When selecting terrain as
+  // the map type, you must also include the layerRoadmap layer type") — without
+  // it createSession fails. For satellite we ask for it deliberately, to get
+  // hybrid labels over the imagery.
+  if (mapType === 'satellite' || mapType === 'terrain') {
     body.layerTypes = ['layerRoadmap'];
   }
 
