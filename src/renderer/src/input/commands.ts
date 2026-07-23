@@ -63,6 +63,19 @@ export const COMMANDS: Command[] = [
     },
   },
   {
+    id: 'edit.editSelection',
+    keys: 'e',
+    keyLabel: 'E',
+    label: 'Edit the selected feature’s shape',
+    group: 'Edit',
+    run: ({ store }) => {
+      const s = store.getState();
+      if (s.selection.length !== 1) return;
+      const node = s.docOf(s.selection[0])?.nodeById(s.selection[0]);
+      if (node?.type === 'Placemark' && node.geometry) s.setMode('edit');
+    },
+  },
+  {
     id: 'help.toggle',
     keys: '?',
     keyLabel: '?',
