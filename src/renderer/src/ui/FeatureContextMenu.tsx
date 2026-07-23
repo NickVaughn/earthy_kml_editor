@@ -43,10 +43,6 @@ export function FeatureContextMenu({ nodeId, x, y, onClose }: Props): JSX.Elemen
   const doDelete = (): void => {
     if (window.confirm(`Delete “${node.name || '(unnamed)'}”?`)) s().remove([nodeId]);
   };
-  const doRename = (): void => {
-    const name = window.prompt('Rename feature', node.name);
-    if (name != null) s().rename(nodeId, name);
-  };
 
   return (
     <>
@@ -60,7 +56,9 @@ export function FeatureContextMenu({ nodeId, x, y, onClose }: Props): JSX.Elemen
       />
       <ul className="ctx-menu" style={{ left: x, top: y }}>
         {canEdit && <li onClick={act(() => s().setMode('edit'))}>Edit shape</li>}
-        <li onClick={act(doRename)}>Rename…</li>
+        <li onClick={act(() => s().requestRename(nodeId))}>Rename</li>
+        <li onClick={act(() => s().openRestyle([nodeId]))}>Restyle…</li>
+        <li onClick={act(() => s().openDescriptionEditor(nodeId))}>Edit description…</li>
         <li className="sep" />
         <li onClick={act(() => s().cut([nodeId]))}>Cut</li>
         <li onClick={act(() => s().copy([nodeId]))}>Copy</li>

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { KmlDocument } from '@renderer/model/document';
 import type { StylePatch } from '@renderer/model/bulkStyle';
 import type { Geometry, KmlStyle } from '@renderer/model/types';
-import { geojsonToFolder, type ImportOptions } from '@renderer/model/geojson';
+import { geojsonToFolder, type ImportOptions, type CategorySpec } from '@renderer/model/geojson';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
 import type { VectorInfo } from '@shared/gdal';
 
@@ -56,6 +56,13 @@ interface AppState {
   /** Keyboard-shortcut help overlay. */
   helpOpen: boolean;
 
+  /** Feature/folder ids being restyled (drives the restyle dialog); null = closed. */
+  restyleIds: string[] | null;
+  /** Feature whose description is being edited (drives the description dialog). */
+  descEditId: string | null;
+  /** A request for the layer tree to begin inline-renaming this node. */
+  renameRequestId: string | null;
+
   settings: AppSettings;
   hasGoogleKey: boolean;
   cursorLon: number | null;
@@ -89,9 +96,17 @@ interface AppState {
   copy(ids: string[]): void;
   cut(ids: string[]): void;
   paste(targetId: string): void;
-  applyStyle(patch: StylePatch): { patched: number; created: number };
+  /** Apply a uniform style patch to the placemarks under the given nodes. */
+  applyStyleTo(ids: string[], patch: StylePatch): { patched: number; created: number };
+  /** Recolour the placemarks under `ids` by a field value (categorized). */
+  restyleByField(ids: string[], field: string, specs: CategorySpec[], lineWidth?: number): number;
   undo(): void;
   redo(): void;
+
+  // dialogs
+  openRestyle(ids: string[] | null): void;
+  openDescriptionEditor(id: string | null): void;
+  requestRename(id: string | null): void;
 
   // geometry
   setMode(mode: InteractionMode): void;
@@ -149,6 +164,9 @@ export const useStore = create<AppState>((set, get) => {
     pendingImport: null,
     importStatus: null,
     helpOpen: false,
+    restyleIds: null,
+    descEditId: null,
+    renameRequestId: null,
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -331,22 +349,42 @@ export const useStore = create<AppState>((set, get) => {
         bumpScene();
       }
     },
-    applyStyle(patch) {
-      // Selection may span documents; apply per doc and sum results.
+    applyStyleTo(ids, patch) {
+      // ids may span documents; apply per doc and sum results.
       const byDoc = new Map<KmlDocument, string[]>();
-      for (const id of get().selection) {
+      for (const id of ids) {
         const doc = get().docOf(id);
         if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
       }
       let patched = 0;
       let created = 0;
-      for (const [doc, ids] of byDoc) {
-        const r = doc.applyStyle(ids, patch);
+      for (const [doc, docIds] of byDoc) {
+        const r = doc.applyStyle(docIds, patch);
         patched += r.patched;
         created += r.created;
       }
       if (patched || created) bumpScene();
       return { patched, created };
+    },
+    restyleByField(ids, field, specs, lineWidth) {
+      const byDoc = new Map<KmlDocument, string[]>();
+      for (const id of ids) {
+        const doc = get().docOf(id);
+        if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
+      }
+      let n = 0;
+      for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth);
+      if (n) bumpScene();
+      return n;
+    },
+    openRestyle(ids) {
+      set({ restyleIds: ids });
+    },
+    openDescriptionEditor(id) {
+      set({ descEditId: id });
+    },
+    requestRename(id) {
+      set({ renameRequestId: id });
     },
     undo() {
       if (get().activeDoc()?.undo()) bumpScene();

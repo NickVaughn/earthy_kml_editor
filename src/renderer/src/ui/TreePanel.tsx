@@ -227,6 +227,18 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
     if (id) treeRef.current?.scrollTo(id);
   }, [selection]);
 
+  // Honour a rename request (e.g. from the globe menu) by starting inline edit.
+  const renameRequestId = useStore((s) => s.renameRequestId);
+  useEffect(() => {
+    if (!renameRequestId) return;
+    const tree = treeRef.current;
+    if (tree) {
+      setSelection([renameRequestId]);
+      tree.edit(renameRequestId);
+    }
+    st.getState().requestRename(null);
+  }, [renameRequestId, setSelection, st]);
+
   // Measure available height so the Tree (which needs an explicit height) fills
   // whatever space the sidebar gives it, even as the style panel appears.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -318,6 +330,12 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
         }
         case 'delete':
           confirmRemove(sel);
+          break;
+        case 'restyle':
+          s.openRestyle(sel.length ? sel : [menu!.nodeId]);
+          break;
+        case 'editDesc':
+          s.openDescriptionEditor(menu!.nodeId);
           break;
         case 'checkAll':
           s.setChildrenVisibility(menu!.nodeId, true, false);
@@ -434,6 +452,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           const menuDoc = docs.find((d) => d.nodeById(menu.nodeId));
           const menuNode = menuDoc?.nodeById(menu.nodeId);
           const isContainer = !!menuNode && !!menuDoc && menuDoc.isContainer(menuNode);
+          const isFeature = menuNode?.type === 'Placemark';
           const canPaste = !!menuDoc && menuDoc.clipboardSize > 0;
           return (
             <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
@@ -458,6 +477,12 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
               )}
               <li onClick={() => menuAction('newFolder')}>New Folder</li>
               <li onClick={() => menuAction('rename')}>Rename</li>
+              {(isFeature || isContainer) && (
+                <li onClick={() => menuAction('restyle')}>Restyle…</li>
+              )}
+              {isFeature && (
+                <li onClick={() => menuAction('editDesc')}>Edit description…</li>
+              )}
               <li className="sep" />
               <li onClick={() => menuAction('cut')}>Cut</li>
               <li onClick={() => menuAction('copy')}>Copy</li>

@@ -7,14 +7,14 @@ import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/mod
 import { isVectorPath } from '@shared/gdal';
 import { useKeybindings } from '@renderer/input/useKeybindings';
 import { TreePanel } from './TreePanel';
-import { StylePanel } from './StylePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
-import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
+import { RestyleDialog } from './RestyleDialog';
+import { DescriptionDialog } from './DescriptionDialog';
 
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
@@ -291,8 +291,6 @@ export function App(): JSX.Element {
             onSave={(docId) => doSave(false, docId)}
             onSaveAs={(docId) => doSave(true, docId)}
           />
-          <Inspector />
-          <StylePanel />
         </div>
         <div className="globe-wrap">
           <div ref={globeContainer} className="globe" />
@@ -333,6 +331,20 @@ export function App(): JSX.Element {
       </div>
       {store.importStatus && <div className="import-status">{store.importStatus}</div>}
       <ImportDialog />
+      {store.restyleIds && (
+        <RestyleDialog
+          key={store.restyleIds.join(',')}
+          ids={store.restyleIds}
+          onClose={() => useStore.getState().openRestyle(null)}
+        />
+      )}
+      {store.descEditId && (
+        <DescriptionDialog
+          key={store.descEditId}
+          nodeId={store.descEditId}
+          onClose={() => useStore.getState().openDescriptionEditor(null)}
+        />
+      )}
       <HelpOverlay />
       <StatusBar />
     </div>
