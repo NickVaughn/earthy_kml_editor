@@ -133,7 +133,7 @@ Draw and reshape features directly on the globe.
 - **Polygon fill visibility fix.** GroundPrimitives were nested in a generic `PrimitiveCollection`, which prevents the classification pass from rendering them — moved to the scene's dedicated `groundPrimitives` collection. This should fix both invisible fills and interior picking. *(Needs manual confirmation — can't verify pixels headlessly.)*
 - **Cross-file drag.** Features/folders can be dragged between open documents. Implemented as detach-from-source + clone-into-target (fresh ids), with the referenced **shared styles copied along** (identical ids reused, conflicting ids imported under a fresh id) so dragged features keep their styling. Recorded as a **single compound undo entry** on the target document that reverts both sides. Known nit: undoing a cross-file move leaves the imported (now unused) style definitions in the target — harmless, and it keeps undo/redo symmetric. Covered by `test/crossdoc.test.ts`.
 
-## Phase 4 — Imports (vector done; raster next)
+## Phase 4 — Imports (vector done; raster single-overlay done, tiling next)
 
 ### Feasibility (verified before building)
 gdal3.js 2.8.1 (GDAL/OGR compiled to WASM) loads in Electron's Node side: **53 vector + 128 raster drivers** incl. ESRI Shapefile, GPKG, GTiff. Confirmed it reads arbitrary filesystem paths, runs inside a `worker_thread` with the host staying responsive, and round-trips a shapefile. API notes learned the hard way:
@@ -153,7 +153,70 @@ gdal3.js 2.8.1 (GDAL/OGR compiled to WASM) loads in Electron's Node side: **53 v
 
 **Verified:** the *built* worker inspects and converts the shapefile fixture end-to-end (field types + samples correct, attributes preserved). 66 tests pass (9 new in `test/import.test.ts`), typecheck + build clean, app boots.
 
-**Still to do:** raster import (small → GroundOverlay, large → auto-tiled pyramid), progress/cancel UI for long jobs, and a large-shapefile perf check against the PLAN's 8,000-parcel / 30 s bar.
+### Raster import — single overlay ✅ (tiling still to come)
+
+Deliberately built the no-tiling path first, to find out empirically where one
+Cesium `SingleTileImageryProvider` stops being viable.
+
+- **`convertRaster`** (worker): `gdalwarp -t_srs EPSG:4326 -dstalpha` → `gdal_translate -of PNG`, with band selection for >4-band sources, 8-bit rescaling for non-Byte data, and optional downsampling.
+- **`planRaster`** (worker): a pre-flight that costs almost nothing — it predicts the *reprojected* size from a **warped VRT** (GDAL derives output dimensions from georeferencing alone, touching no pixels), and reports whether the codec forces our own decode and how much temp disk that needs. Verified exact: 2048² → 2273×1802 and 8192² → 9092×7208, each predicted in ~200 ms vs 12.7 s to actually convert.
+- **Codec fallback**: the bundled WASM libtiff has only NONE/LZW/DEFLATE/PACKBITS. JPEG and ZSTD failed to open at all. When GDAL reports a missing codec we decode with geotiff.js and re-expose the pixels to GDAL as a raw file + VRT header (EPSG + geotransform), streaming rows in ~64 MB strips. All six compressions now load, output identical to the uncompressed equivalent.
+- **GPU ceiling**: one overlay is one texture, so `MAX_TEXTURE_SIZE` is a hard limit; over it we resample and say so up front (with the resulting resolution %, temp disk, and VRAM estimate) so the load can be cancelled before any slow work.
+- **`RasterPanel`** reports per-overlay pixel size, PNG bytes, estimated VRAM, warp ms and upload ms — the readout for this experiment.
+
+Measured (noise-filled fixtures — worst case for PNG; real imagery compresses far better):
+
+| Source | Warped | PNG | GDAL |
+|---|---|---|---|
+| 1024² | 1136×900 | 6 KB | 0.09 s |
+| 2048² | 2273×1802 | 13 MB | 0.8 s |
+| 4096² | 4546×3604 | 53 MB | 3.1 s |
+| 8192² | 9092×7208 | 211 MB | 12.7 s |
+
+Roughly linear in pixel count. Reprojection enlarges by ~1.2×. Decoded RGBA is
+4 bytes/px regardless of PNG compression, so 67 MP ≈ 262 MB of VRAM.
+
+Two bugs fixed on the way: `inspectRaster` read `cornerCoordinates`/`wgs84Extent`
+off `getInfo()`, which doesn't carry them, so **bounds was always null** (rasters
+could never have been placed); and `setBasemap` called `imageryLayers.removeAll()`,
+which would have wiped raster overlays on a basemap switch.
+
+### Remaining for Phase 4
+
+Raster (the current focus):
+1. **Rasters aren't in the document.** §6.2.2 wants a GroundOverlay node in the tree; today they live in a separate `rasters` store list + panel, so they get no folders, ordering, visibility inheritance, or undo.
+2. **Rasters aren't saved.** Load one, save the KML, it's gone. §6.2.2 wants a `<GroundOverlay>` (image inside the KMZ when it fits).
+3. **No tiling for large rasters** (§6.2.3) — the `earthy-tiles://` pyramid with progress UI. The table above is the evidence for where this becomes necessary.
+4. **Untested at ≥ 2 GB** (§6.2.4).
+
+Vector (small gaps):
+5. **Single layer at a time** — §6.1.2 says "choose layer(s)".
+6. **No target-folder chooser** — imports land in the selection/active document implicitly.
+7. **Shapefile sidecar auto-discovery unverified** (§6.1.4) — `.zip` works; a bare `.shp` with `.dbf`/`.shx` beside it is untested.
+8. **Perf bar never measured** — 8,000 parcels in < 30 s.
+
+Cross-cutting (the phase's headline requirement — "progress + cancel"):
+9. **Progress is computed but never shown.** The worker posts progress and `onGdalProgress` is exposed all the way to the preload, but **no renderer code subscribes**, so it is dropped. The raster decode already emits percentages nobody sees.
+10. **No cancel.** There is no way to abort a running GDAL job; `shutdownGdal()` only terminates the worker at exit.
+11. **Responsiveness unmeasured.** GDAL runs in a worker_thread (good), but a large PNG is structured-cloned twice (worker→main→renderer); that copy is the likely first bottleneck.
+
+## Phase 5 — Terrain + polish (next)
+
+3D terrain is the headline item (PLAN §5.3), and it is **entirely unimplemented**:
+`terrainProvider: 'none' | 'maptiler' | 'ion'` exists in `AppSettings`, the store
+default and the IPC types, but nothing ever constructs a Cesium terrain provider —
+the globe is a smooth ellipsoid today regardless of the setting or basemap.
+
+Work involved: pick a source (Cesium ion token, MapTiler, or derive locally from a
+DEM via the GDAL pipeline we now have), construct `CesiumTerrainProvider`, honour
+KML `altitudeMode` (`clampToGround` / `relativeToGround` / `absolute`), and drape
+clamped features with `GroundPrimitive` / `GroundPolylinePrimitive`. Must toggle
+live without a reload (PLAN §7 acceptance).
+
+Note for whoever picks this up: Google's *Terrain basemap* is not this. It is
+roadmap styling plus shaded relief — a flat image — so it looks nearly identical
+to Google Roadmap outside mountainous areas. Real 3D relief needs a terrain
+provider.
 
 ## How to run
 
