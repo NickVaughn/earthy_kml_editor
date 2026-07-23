@@ -370,31 +370,33 @@ export function App(): JSX.Element {
     if (!doc) return;
     let path = doc.path;
     let asKmz = doc.wasKmz;
+
+    // Imagery lives in the document's resources, which only KMZ can carry.
+    const hasEmbeddedImagery = [...doc.walk()].some(
+      (n) => n.type === 'GroundOverlay' && n.overlay?.href && doc.resources[n.overlay.href],
+    );
+
     if (!path || forceDialog) {
-      const base = path?.split('/').pop() ?? `${doc.root.name || 'untitled'}.kml`;
-      const chosen = await window.api.saveFileDialog(base);
+      const stem = (path?.split('/').pop() ?? `${doc.root.name || 'untitled'}.kml`).replace(
+        /\.(kml|kmz)$/i,
+        '',
+      );
+      const base = `${stem}.${hasEmbeddedImagery ? 'kmz' : 'kml'}`;
+      const chosen = await window.api.saveFileDialog(base, hasEmbeddedImagery);
       if (!chosen) return;
       path = chosen.path;
       asKmz = chosen.asKmz;
     }
 
-    // Overlay images live in the document's resources, which only a KMZ can
-    // carry. Saving as plain KML would leave the <GroundOverlay> pointing at a
-    // file that isn't there, so say so before writing.
-    if (!asKmz) {
-      const embedded = [...doc.walk()].filter(
-        (n) => n.type === 'GroundOverlay' && n.overlay?.href && doc.resources[n.overlay.href],
+    // Re-saving a file that was opened as .kml but has since gained imagery
+    // would silently drop it; the Save As dialog can't help here, so ask.
+    if (!asKmz && hasEmbeddedImagery) {
+      const ok = window.confirm(
+        `This file now contains image overlays, and plain KML can't carry images.\n\n` +
+          `Saving as KML would leave the overlays pointing at files that don't exist. ` +
+          `Use “Save As…” and choose KMZ to embed the imagery.\n\nSave as KML anyway?`,
       );
-      if (embedded.length) {
-        const ok = window.confirm(
-          `This file has ${embedded.length} image overlay${embedded.length === 1 ? '' : 's'} ` +
-            `whose imagery is stored inside the document.\n\n` +
-            `Plain KML can't carry images, so the overlay${embedded.length === 1 ? '' : 's'} ` +
-            `will reference a file that doesn't exist and won't render when reopened. ` +
-            `Save as KMZ instead to embed the imagery.\n\nSave as KML anyway?`,
-        );
-        if (!ok) return;
-      }
+      if (!ok) return;
     }
 
     const res = await window.api.saveFile({

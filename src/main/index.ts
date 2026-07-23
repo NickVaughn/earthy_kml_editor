@@ -237,16 +237,25 @@ function registerIpc(): void {
     convertRaster(path, maxDimension),
   );
 
-  ipcMain.handle('save-file-dialog', async (_e, defaultName: string) => {
+  ipcMain.handle('save-file-dialog', async (_e, defaultName: string, kmzOnly?: boolean) => {
+    // A document with embedded imagery can only be written losslessly as KMZ,
+    // so don't offer KML as a choice at all in that case.
     const res = await dialog.showSaveDialog(mainWindow!, {
       defaultPath: defaultName,
-      filters: [
-        { name: 'KML', extensions: ['kml'] },
-        { name: 'KMZ', extensions: ['kmz'] },
-      ],
+      filters: kmzOnly
+        ? [{ name: 'KMZ', extensions: ['kmz'] }]
+        : [
+            { name: 'KML', extensions: ['kml'] },
+            { name: 'KMZ', extensions: ['kmz'] },
+          ],
     });
     if (res.canceled || !res.filePath) return null;
-    return { path: res.filePath, asKmz: res.filePath.toLowerCase().endsWith('.kmz') };
+    // Some platforms let the extension be typed away; honour kmzOnly regardless.
+    const asKmz = kmzOnly || res.filePath.toLowerCase().endsWith('.kmz');
+    const path = kmzOnly && !res.filePath.toLowerCase().endsWith('.kmz')
+      ? `${res.filePath}.kmz`
+      : res.filePath;
+    return { path, asKmz };
   });
 
   ipcMain.handle('get-google-session', (_e, mapType: GoogleMapType) =>

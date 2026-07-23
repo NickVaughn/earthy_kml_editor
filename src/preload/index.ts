@@ -5,7 +5,8 @@ const api: Api = {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
   openPath: (path) => ipcRenderer.invoke('open-path', path),
   saveFile: (req) => ipcRenderer.invoke('save-file', req),
-  saveFileDialog: (defaultName) => ipcRenderer.invoke('save-file-dialog', defaultName),
+  saveFileDialog: (defaultName, kmzOnly) =>
+    ipcRenderer.invoke('save-file-dialog', defaultName, kmzOnly),
   getGoogleSession: (mapType) => ipcRenderer.invoke('get-google-session', mapType),
   getGoogleTileTemplate: (session) =>
     ipcRenderer.invoke('get-google-tile-template', session),

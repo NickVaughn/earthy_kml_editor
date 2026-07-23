@@ -48,8 +48,10 @@ export interface Api {
   /** Open a specific path (drag-drop, file association, recent files). */
   openPath(path: string): Promise<OpenedFile | null>;
   saveFile(req: SaveRequest): Promise<{ ok: boolean; path?: string; error?: string }>;
+  /** `kmzOnly` restricts the dialog to KMZ (documents with embedded imagery). */
   saveFileDialog(
     defaultName: string,
+    kmzOnly?: boolean,
   ): Promise<{ path: string; asKmz: boolean } | null>;
   /** Returns null if NGE_GOOGLE_MAPS_API_KEY is not configured. */
   getGoogleSession(mapType: GoogleMapType): Promise<GoogleSession | null>;
