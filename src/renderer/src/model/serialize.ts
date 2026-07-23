@@ -6,6 +6,7 @@ import type {
   IconStyle,
   Geometry,
   Position,
+  OverlayData,
 } from './types';
 
 /**
@@ -196,6 +197,27 @@ function writeCommonHead(w: Writer, node: KmlNode): void {
   }
 }
 
+/** `<color>`, `<drawOrder>`, `<Icon>` and `<LatLonBox>` of a GroundOverlay. */
+function writeOverlay(w: Writer, overlay: OverlayData): void {
+  if (overlay.color !== undefined) w.leaf('color', overlay.color);
+  if (overlay.drawOrder !== undefined) w.leaf('drawOrder', String(overlay.drawOrder));
+  if (overlay.href !== undefined) {
+    w.open('Icon');
+    w.leaf('href', overlay.href);
+    w.close('Icon');
+  }
+  const box = overlay.box;
+  if (box) {
+    w.open('LatLonBox');
+    w.leaf('north', String(box.north));
+    w.leaf('south', String(box.south));
+    w.leaf('east', String(box.east));
+    w.leaf('west', String(box.west));
+    if (box.rotation !== undefined) w.leaf('rotation', String(box.rotation));
+    w.close('LatLonBox');
+  }
+}
+
 function writeNode(w: Writer, node: KmlNode): void {
   if (node.rawElement && node.type !== 'Placemark' && node.children.length === 0) {
     w.raw(node.rawElement);
@@ -224,6 +246,10 @@ function writeNode(w: Writer, node: KmlNode): void {
     if (node.extendedData) w.raw(node.extendedData.raw);
     for (const r of node.unknownChildren) w.raw(r);
     if (node.geometry) writeGeometry(w, node.geometry);
+  } else if (node.type === 'GroundOverlay' && node.overlay) {
+    if (node.extendedData) w.raw(node.extendedData.raw);
+    for (const r of node.unknownChildren) w.raw(r);
+    writeOverlay(w, node.overlay);
   } else {
     if (node.extendedData) w.raw(node.extendedData.raw);
     for (const r of node.unknownChildren) w.raw(r);

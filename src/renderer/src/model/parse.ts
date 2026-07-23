@@ -22,6 +22,7 @@ import type {
   Position,
   AltitudeMode,
   IconStyle,
+  OverlayData,
 } from './types';
 import { nextId } from './ids';
 
@@ -39,6 +40,12 @@ const CONTAINER_CHILD_KNOWN = new Set([
   'Document',
   'Placemark',
   'ExtendedData',
+  // Overlays/links are parsed into child nodes by the loop below. They must be
+  // "known" here or they'd ALSO be captured as raw unknownChildren and emitted
+  // twice on save.
+  'GroundOverlay',
+  'ScreenOverlay',
+  'NetworkLink',
 ]);
 
 const PLACEMARK_CHILD_KNOWN = new Set([
@@ -57,6 +64,19 @@ const PLACEMARK_CHILD_KNOWN = new Set([
 ]);
 
 const OVERLAY_TYPES = new Set(['GroundOverlay', 'ScreenOverlay', 'NetworkLink']);
+
+const GROUND_OVERLAY_CHILD_KNOWN = new Set([
+  'name',
+  'visibility',
+  'open',
+  'description',
+  'styleUrl',
+  'ExtendedData',
+  'Icon',
+  'LatLonBox',
+  'color',
+  'drawOrder',
+]);
 
 function parseCoordinates(text: string): Position[] {
   const out: Position[] = [];
@@ -300,6 +320,8 @@ function parseContainer(el: Element, doc: KmlDocumentData): KmlNode {
       node.children.push(parseContainer(c, doc));
     } else if (tag === 'Placemark') {
       node.children.push(parsePlacemark(c, doc));
+    } else if (tag === 'GroundOverlay') {
+      node.children.push(parseGroundOverlay(c));
     } else if (OVERLAY_TYPES.has(tag)) {
       node.children.push(parseOverlayLike(c));
     }
@@ -340,6 +362,62 @@ function parsePlacemark(el: Element, doc: KmlDocumentData): KmlNode {
       break;
     }
   }
+  return node;
+}
+
+/**
+ * GroundOverlay is modelled (not kept as raw XML) so it can be rendered on the
+ * globe, toggled, moved in the tree and re-saved. Anything we don't model is
+ * still preserved through `unknownChildren`.
+ */
+function parseGroundOverlay(el: Element): KmlNode {
+  const node: KmlNode = {
+    id: nextId(),
+    kmlId: el.getAttribute('id') ?? undefined,
+    type: 'GroundOverlay',
+    name: '',
+    visible: true,
+    children: [],
+    unknownChildren: [],
+    attrs: {},
+  };
+  parseCommon(el, node, GROUND_OVERLAY_CHILD_KNOWN, (c) => {
+    node.unknownChildren.push(serializeStripped(c));
+  });
+
+  const overlay: OverlayData = {};
+  const iconEl = firstChild(el, 'Icon');
+  const href = iconEl ? childText(iconEl, 'href') : undefined;
+  if (href) overlay.href = href;
+
+  const boxEl = firstChild(el, 'LatLonBox');
+  if (boxEl) {
+    const num = (tag: string): number | undefined => {
+      const raw = childText(boxEl, tag);
+      if (raw === undefined || raw === '') return undefined;
+      const v = Number(raw);
+      return Number.isFinite(v) ? v : undefined;
+    };
+    const north = num('north');
+    const south = num('south');
+    const east = num('east');
+    const west = num('west');
+    if (north !== undefined && south !== undefined && east !== undefined && west !== undefined) {
+      overlay.box = { north, south, east, west };
+      const rotation = num('rotation');
+      if (rotation !== undefined) overlay.box.rotation = rotation;
+    }
+  }
+
+  const color = childText(el, 'color');
+  if (color) overlay.color = color;
+  const drawOrder = childText(el, 'drawOrder');
+  if (drawOrder !== undefined && drawOrder !== '') {
+    const v = Number(drawOrder);
+    if (Number.isFinite(v)) overlay.drawOrder = v;
+  }
+
+  node.overlay = overlay;
   return node;
 }
 
@@ -437,6 +515,7 @@ export function parseKml(text: string): KmlDocumentData {
       const tag = localName(c);
       if (tag === 'Placemark') synthetic.children.push(parsePlacemark(c, doc));
       else if (tag === 'Folder') synthetic.children.push(parseContainer(c, doc));
+      else if (tag === 'GroundOverlay') synthetic.children.push(parseGroundOverlay(c));
       else if (OVERLAY_TYPES.has(tag)) synthetic.children.push(parseOverlayLike(c));
       else if ((tag === 'Style' || tag === 'StyleMap') && c.getAttribute('id')) {
         (synthetic.styles ??= []).push(registerShared(c, doc));

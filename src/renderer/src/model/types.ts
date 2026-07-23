@@ -131,6 +131,28 @@ export type SharedStyleEntry =
   | { kind: 'Style'; style: KmlStyle }
   | { kind: 'StyleMap'; map: KmlStyleMap };
 
+// ---- Overlays --------------------------------------------------------------
+
+/** A GroundOverlay's geographic placement (KML `<LatLonBox>`). */
+export interface LatLonBox {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+  /** Clockwise rotation in degrees about the box centre. */
+  rotation?: number;
+}
+
+/** A GroundOverlay's image and placement, modelled so it can be rendered and edited. */
+export interface OverlayData {
+  /** `<Icon><href>` — a KMZ-relative resource name, local path, or URL. */
+  href?: string;
+  box?: LatLonBox;
+  /** `<color>` aabbggrr; the alpha byte controls overlay opacity. */
+  color?: string;
+  drawOrder?: number;
+}
+
 // ---- Nodes ----------------------------------------------------------------
 
 export interface KmlNode {
@@ -148,6 +170,9 @@ export interface KmlNode {
   children: KmlNode[];
 
   geometry?: Geometry;
+  /** For GroundOverlay: the modelled image + placement (see `rawElement` for
+   *  the other overlay types, which are still preserved verbatim). */
+  overlay?: OverlayData;
   styleUrl?: string;
   inlineStyle?: KmlStyle;
   inlineStyleMap?: KmlStyleMap;

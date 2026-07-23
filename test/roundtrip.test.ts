@@ -8,6 +8,7 @@ const FIXTURES = [
   'simple.kml',
   'styles-torture.kml',
   'unknown-extensions.kml',
+  'overlay.kml',
   'hawaii_may26_campaign.kml', // real-world: Schema, BalloonStyle, SchemaData, 191 placemarks
 ];
 
@@ -88,6 +89,50 @@ describe('document model', () => {
       .placemarksUnder()
       .find((p) => p.geometry?.kind === 'Point' && p.geometry.coordinates[2] === 100);
     expect(pt).toBeTruthy();
+  });
+});
+
+describe('ground overlays', () => {
+  it('models the image href and lat/lon box', () => {
+    const doc = KmlDocument.fromKml(fixture('overlay.kml'));
+    const overlays = [...doc.walk()].filter((n) => n.type === 'GroundOverlay');
+    expect(overlays.length).toBe(2);
+
+    const scan = overlays.find((o) => o.name === 'Scanned map')!;
+    expect(scan.overlay?.href).toBe('files/scan.png');
+    expect(scan.overlay?.box).toEqual({
+      north: 37.9475896,
+      south: 37.8574079,
+      east: -122.8861706,
+      west: -123,
+      rotation: -12.5,
+    });
+    expect(scan.overlay?.color).toBe('c0ffffff');
+    expect(scan.overlay?.drawOrder).toBe(3);
+    expect(scan.kmlId).toBe('go-1');
+
+    const hidden = overlays.find((o) => o.name !== 'Scanned map')!;
+    expect(hidden.visible).toBe(false);
+    expect(hidden.overlay?.box?.rotation).toBeUndefined();
+    // Unmodelled children still survive verbatim.
+    expect(hidden.unknownChildren.join()).toContain('gx:altitudeMode');
+  });
+
+  it('does not duplicate overlays on save', () => {
+    // Regression: overlays were missing from the container "known" set, so they
+    // were captured as raw unknownChildren *and* parsed as child nodes — every
+    // save doubled them.
+    const out = serializeKml(parseKml(fixture('overlay.kml')));
+    expect(out.match(/<GroundOverlay/g)?.length).toBe(2);
+    expect(out.match(/<ScreenOverlay/g)?.length).toBe(1);
+    expect(out.match(/Scanned map/g)?.length).toBe(1);
+  });
+
+  it('keeps ScreenOverlay/NetworkLink verbatim (only GroundOverlay is modelled)', () => {
+    const doc = KmlDocument.fromKml(fixture('overlay.kml'));
+    const screen = [...doc.walk()].find((n) => n.type === 'ScreenOverlay')!;
+    expect(screen.rawElement).toContain('screenXY');
+    expect(screen.overlay).toBeUndefined();
   });
 });
 

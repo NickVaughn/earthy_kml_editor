@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+  <Document>
+    <name>Overlay fixture</name>
+    <Folder>
+      <name>Imagery</name>
+      <GroundOverlay id="go-1">
+        <name>Scanned map</name>
+        <description>A georeferenced scan.</description>
+        <color>c0ffffff</color>
+        <drawOrder>3</drawOrder>
+        <Icon>
+          <href>files/scan.png</href>
+        </Icon>
+        <LatLonBox>
+          <north>37.9475896</north>
+          <south>37.8574079</south>
+          <east>-122.8861706</east>
+          <west>-123</west>
+          <rotation>-12.5</rotation>
+        </LatLonBox>
+      </GroundOverlay>
+      <GroundOverlay>
+        <name>Hidden overlay, no rotation</name>
+        <visibility>0</visibility>
+        <Icon>
+          <href>https://example.com/tile.png</href>
+        </Icon>
+        <LatLonBox>
+          <north>10</north>
+          <south>0</south>
+          <east>10</east>
+          <west>0</west>
+        </LatLonBox>
+        <gx:altitudeMode>clampToSeaFloor</gx:altitudeMode>
+      </GroundOverlay>
+    </Folder>
+    <ScreenOverlay>
+      <name>Legend</name>
+      <Icon>
+        <href>files/legend.png</href>
+      </Icon>
+      <overlayXY x="0" y="1" xunits="fraction" yunits="fraction"/>
+      <screenXY x="8" y="-8" xunits="pixels" yunits="insetPixels"/>
+    </ScreenOverlay>
+  </Document>
+</kml>
