@@ -17,8 +17,10 @@ import { Balloon } from './Balloon';
 
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
-  'draw-line': 'Click to add points · double-click or Enter to finish · Esc to cancel',
-  'draw-polygon': 'Click to add vertices · double-click or Enter to finish · Esc to cancel',
+  'draw-line':
+    'Click to add points · Shift-drag to sketch freehand · Backspace to undo · double-click or Enter to finish · Esc to cancel',
+  'draw-polygon':
+    'Click to add vertices · Shift-drag to sketch freehand · Backspace to undo · double-click or Enter to finish · Esc to cancel',
   edit: 'Drag handles to move · click a midpoint to add · right-click/Delete to remove · Esc when done',
   measure: 'Click to add points · double-click to finish · Esc to cancel',
 };

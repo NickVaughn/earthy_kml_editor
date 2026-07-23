@@ -10,6 +10,7 @@ import {
   PolygonHierarchy,
   Math as CesiumMath,
   Entity,
+  KeyboardEventModifier,
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
 
@@ -22,10 +23,17 @@ function cartToLonLat(cart: Cartesian3): Position {
   return [CesiumMath.toDegrees(c.longitude), CesiumMath.toDegrees(c.latitude)];
 }
 
+/** Freehand sampling cadence: drop a vertex once the cursor has moved this far
+ * (screen pixels) from the last sample. Small enough to feel continuous, large
+ * enough not to flood the geometry with points. */
+const FREEHAND_SAMPLE_PX = 12;
+
 /**
  * Interactive drawing of a Point / LineString / Polygon on the globe. Click to
  * add vertices with a rubber-band preview; double-click or Enter finishes;
- * Esc cancels. A Point finishes on the first click.
+ * Esc cancels; Backspace removes the last vertex. Hold Shift and drag to sketch
+ * a run of vertices freehand along the cursor path. A Point finishes on the
+ * first click.
  */
 export class DrawTool {
   private handler: ScreenSpaceEventHandler;
@@ -33,6 +41,8 @@ export class DrawTool {
   private floating: Cartesian3 | null = null;
   private entities: Entity[] = [];
   private finished = false;
+  private freehand = false;
+  private lastSample: Cartesian2 | null = null;
 
   constructor(
     private viewer: Viewer,
@@ -52,6 +62,10 @@ export class DrawTool {
     );
   }
 
+  private setCamera(enabled: boolean): void {
+    this.viewer.scene.screenSpaceCameraController.enableInputs = enabled;
+  }
+
   private install(): void {
     this.handler.setInputAction((e: ScreenSpaceEventHandler.PositionedEvent) => {
       const c = this.pickGlobe(e.position);
@@ -61,6 +75,10 @@ export class DrawTool {
     }, ScreenSpaceEventType.LEFT_CLICK);
 
     this.handler.setInputAction((e: ScreenSpaceEventHandler.MotionEvent) => {
+      if (this.freehand) {
+        this.sampleFreehand(e.endPosition);
+        return;
+      }
       this.floating = this.pickGlobe(e.endPosition);
     }, ScreenSpaceEventType.MOUSE_MOVE);
 
@@ -69,11 +87,56 @@ export class DrawTool {
       if (this.carts.length > 1) this.carts.pop();
       this.finish();
     }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+
+    // Shift-drag: sketch a run of vertices along the cursor path. Only lines and
+    // polygons take multiple vertices, so freehand is a no-op for points.
+    if (this.kind !== 'Point') {
+      this.handler.setInputAction((e: ScreenSpaceEventHandler.PositionedEvent) => {
+        const c = this.pickGlobe(e.position);
+        if (!c) return;
+        this.freehand = true;
+        this.setCamera(false); // stop the drag from spinning the globe
+        this.carts.push(c);
+        this.lastSample = e.position.clone();
+      }, ScreenSpaceEventType.LEFT_DOWN, KeyboardEventModifier.SHIFT);
+
+      this.handler.setInputAction(() => this.endFreehand(), ScreenSpaceEventType.LEFT_UP, KeyboardEventModifier.SHIFT);
+      // Releasing Shift mid-drag routes LEFT_UP to the unmodified handler.
+      this.handler.setInputAction(() => this.endFreehand(), ScreenSpaceEventType.LEFT_UP);
+    }
+  }
+
+  private sampleFreehand(screen: Cartesian2): void {
+    if (this.lastSample && Cartesian2.distance(screen, this.lastSample) < FREEHAND_SAMPLE_PX) {
+      this.floating = this.pickGlobe(screen);
+      return;
+    }
+    const c = this.pickGlobe(screen);
+    if (!c) return;
+    this.carts.push(c);
+    this.lastSample = screen.clone();
+    this.floating = c;
+  }
+
+  private endFreehand(): void {
+    if (!this.freehand) return;
+    this.freehand = false;
+    this.lastSample = null;
+    this.setCamera(true);
+  }
+
+  /** Remove the most recently placed vertex (Backspace during drawing). */
+  private undoLastVertex(): void {
+    if (this.carts.length > 0) this.carts.pop();
   }
 
   private onKey = (ev: KeyboardEvent): void => {
     if (ev.key === 'Enter') this.finish();
     else if (ev.key === 'Escape') this.cancel();
+    else if (ev.key === 'Backspace' || ev.key === 'Delete') {
+      ev.preventDefault(); // Backspace would otherwise navigate back
+      this.undoLastVertex();
+    }
   };
 
   private livePositions(): Cartesian3[] {
@@ -152,6 +215,7 @@ export class DrawTool {
   }
 
   private teardown(): void {
+    this.setCamera(true); // in case we tore down mid freehand-drag
     window.removeEventListener('keydown', this.onKey);
     this.handler.destroy();
     for (const e of this.entities) this.viewer.entities.remove(e);
