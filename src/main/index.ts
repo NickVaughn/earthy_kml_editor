@@ -150,6 +150,7 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
+        { label: 'New File', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('new') },
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => sendMenu('open') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenu('saveAs') },
