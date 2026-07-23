@@ -331,6 +331,17 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
         case 'delete':
           confirmRemove(sel);
           break;
+        case 'deleteContents': {
+          const node = s.docOf(menu!.nodeId)?.nodeById(menu!.nodeId);
+          const ids = node?.children.map((c) => c.id) ?? [];
+          if (node && ids.length) {
+            const label = `${ids.length} item${ids.length === 1 ? '' : 's'}`;
+            if (window.confirm(`Delete all ${label} inside “${node.name || '(unnamed)'}”?`)) {
+              s.remove(ids);
+            }
+          }
+          break;
+        }
         case 'restyle':
           s.openRestyle(sel.length ? sel : [menu!.nodeId]);
           break;
@@ -454,6 +465,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           const isContainer = !!menuNode && !!menuDoc && menuDoc.isContainer(menuNode);
           const isFeature = menuNode?.type === 'Placemark';
           const canPaste = !!menuDoc && menuDoc.clipboardSize > 0;
+          const canDeleteContents = isContainer && !!menuNode && menuNode.children.length > 0;
           return (
             <ul className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
               <li onClick={() => menuAction('zoom')}>Zoom to</li>
@@ -492,10 +504,11 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
               >
                 Paste
               </li>
-              <li className="sep" />
-              <li onClick={() => menuAction('delete')}>
-                {isRoot ? 'Close File' : 'Delete'}
-              </li>
+              {(canDeleteContents || !isRoot) && <li className="sep" />}
+              {canDeleteContents && (
+                <li onClick={() => menuAction('deleteContents')}>Delete Contents</li>
+              )}
+              {!isRoot && <li onClick={() => menuAction('delete')}>Delete</li>}
             </ul>
           );
         })()}
