@@ -220,6 +220,13 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
     if (changed) tree.redrawList();
   }, [docs, docEpoch]);
 
+  // Reveal the selected feature: expand its ancestor folders and scroll it into
+  // view (scrollTo opens parents on the way). Handy when selecting on the globe.
+  useEffect(() => {
+    const id = selection[0];
+    if (id) treeRef.current?.scrollTo(id);
+  }, [selection]);
+
   // Measure available height so the Tree (which needs an explicit height) fills
   // whatever space the sidebar gives it, even as the style panel appears.
   const scrollRef = useRef<HTMLDivElement>(null);
