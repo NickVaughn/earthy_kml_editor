@@ -13,6 +13,7 @@ import {
   KeyboardEventModifier,
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
+import { vertexMarker, HANDLE_SIZE } from './handles';
 
 export type DrawKind = 'Point' | 'LineString' | 'Polygon';
 
@@ -40,6 +41,7 @@ export class DrawTool {
   private carts: Cartesian3[] = [];
   private floating: Cartesian3 | null = null;
   private entities: Entity[] = [];
+  private markers: Entity[] = [];
   private finished = false;
   private freehand = false;
   private lastSample: Cartesian2 | null = null;
@@ -79,7 +81,11 @@ export class DrawTool {
       const c = this.pickGlobe(e.position);
       if (!c) return;
       this.carts.push(c);
-      if (this.kind === 'Point') this.finish();
+      if (this.kind === 'Point') {
+        this.finish();
+        return;
+      }
+      this.addMarker(c);
     }, ScreenSpaceEventType.LEFT_CLICK);
 
     this.handler.setInputAction(this.onMove, ScreenSpaceEventType.MOUSE_MOVE);
@@ -104,6 +110,7 @@ export class DrawTool {
         this.freehand = true;
         this.setCamera(false); // stop the drag from spinning the globe
         this.carts.push(c);
+        this.addMarker(c);
         this.lastSample = e.position.clone();
       }, ScreenSpaceEventType.LEFT_DOWN, KeyboardEventModifier.SHIFT);
 
@@ -121,8 +128,24 @@ export class DrawTool {
     const c = this.pickGlobe(screen);
     if (!c) return;
     this.carts.push(c);
+    this.addMarker(c);
     this.lastSample = screen.clone();
     this.floating = c;
+  }
+
+  /** Add a square handle at a committed vertex (static position). */
+  private addMarker(c: Cartesian3): void {
+    this.markers.push(
+      this.viewer.entities.add({
+        position: c,
+        billboard: {
+          image: vertexMarker(),
+          width: HANDLE_SIZE,
+          height: HANDLE_SIZE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      }),
+    );
   }
 
   private endFreehand(): void {
@@ -134,7 +157,10 @@ export class DrawTool {
 
   /** Remove the most recently placed vertex (Backspace during drawing). */
   private undoLastVertex(): void {
-    if (this.carts.length > 0) this.carts.pop();
+    if (this.carts.length === 0) return;
+    this.carts.pop();
+    const m = this.markers.pop();
+    if (m) this.viewer.entities.remove(m);
   }
 
   private onKey = (ev: KeyboardEvent): void => {
@@ -225,8 +251,9 @@ export class DrawTool {
     this.setCamera(true); // in case we tore down mid freehand-drag
     window.removeEventListener('keydown', this.onKey);
     this.handler.destroy();
-    for (const e of this.entities) this.viewer.entities.remove(e);
+    for (const e of [...this.entities, ...this.markers]) this.viewer.entities.remove(e);
     this.entities = [];
+    this.markers = [];
   }
 
   /** External cancel (e.g. switching tools). */

@@ -13,8 +13,8 @@ import {
   defined,
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
+import { vertexMarker, HANDLE_SIZE } from './handles';
 
-const HANDLE = Color.WHITE;
 const HANDLE_OUTLINE = Color.fromCssColorString('#00e5ff');
 const MIDPOINT = Color.fromCssColorString('#00e5ff').withAlpha(0.6);
 
@@ -138,11 +138,10 @@ export class EditTool {
       this.vertexHandles.push(
         this.viewer.entities.add({
           position: new CallbackProperty(() => this.working[i], false) as never,
-          point: {
-            pixelSize: 12,
-            color: HANDLE,
-            outlineColor: HANDLE_OUTLINE,
-            outlineWidth: 2,
+          billboard: {
+            image: vertexMarker(),
+            width: HANDLE_SIZE,
+            height: HANDLE_SIZE,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         }),
