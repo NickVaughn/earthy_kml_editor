@@ -57,7 +57,17 @@ export function RasterPanel({ onRemove, onToggle, onZoom }: Props): JSX.Element 
           <div className="raster-stats muted">
             {r.width.toLocaleString()}×{r.height.toLocaleString()} ({mp(r.width, r.height)})
             {r.downsampled && (
-              <span title={`Source was ${r.sourceWidth}×${r.sourceHeight}`}> · downsampled</span>
+              <span
+                className="raster-warn"
+                title={
+                  `Source was ${r.sourceWidth.toLocaleString()}×${r.sourceHeight.toLocaleString()} px. ` +
+                  `It exceeded this GPU's maximum texture size, so it was resampled down ` +
+                  `to fit in a single overlay — fine detail has been lost.`
+                }
+              >
+                {' '}
+                · ⚠ resampled to fit GPU limit
+              </span>
             )}
             <br />
             {mb(r.bytes)} png · ~{mb(r.width * r.height * 4)} vram

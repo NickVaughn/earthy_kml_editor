@@ -205,6 +205,26 @@ export function App(): JSX.Element {
       // One overlay is one GPU texture, so the GPU's max dimension is a hard
       // ceiling. Downsample to fit rather than failing the upload outright.
       const maxTex = globe.maxTextureSize() || 8192;
+
+      // Warn *before* the (potentially slow) warp when we can already tell the
+      // image is over the limit, so the user can back out.
+      const sourceMax = Math.max(info.width, info.height);
+      const warnedUpFront = sourceMax > maxTex;
+      if (warnedUpFront) {
+        const pct = Math.round((maxTex / sourceMax) * 100);
+        const proceed = window.confirm(
+          `${name} is ${info.width.toLocaleString()}×${info.height.toLocaleString()} px, ` +
+            `larger than this GPU's maximum texture size of ${maxTex.toLocaleString()} px.\n\n` +
+            `As a single overlay it has to be resampled down to roughly ${pct}% of full ` +
+            `resolution, so fine detail will be lost. (Tiled rendering would avoid this.)\n\n` +
+            `Load it anyway?`,
+        );
+        if (!proceed) {
+          st.setImportStatus(null);
+          return;
+        }
+      }
+
       st.setImportStatus(
         `Warping ${name} (${info.width.toLocaleString()}×${info.height.toLocaleString()})…`,
       );
@@ -246,9 +266,19 @@ export function App(): JSX.Element {
       flash(
         `${name}: ${conv.width.toLocaleString()}×${conv.height.toLocaleString()} · ` +
           `warp ${Math.round(conv.gdalMs)} ms · upload ${Math.round(uploadMs)} ms` +
-          (conv.downsampled ? ' · downsampled to fit GPU limit' : ''),
+          (conv.downsampled ? ' · ⚠ resampled to fit GPU limit' : ''),
         8000,
       );
+
+      // Reprojection can enlarge an image past the limit even when the source
+      // fit, so tell the user if we resampled without having warned already.
+      if (conv.downsampled && !warnedUpFront) {
+        alert(
+          `${name} was resampled to ${conv.width.toLocaleString()}×${conv.height.toLocaleString()} px ` +
+            `to fit this GPU's maximum texture size of ${maxTex.toLocaleString()} px.\n\n` +
+            `Reprojecting to EPSG:4326 enlarged it past the limit, so some fine detail has been lost.`,
+        );
+      }
     } catch (err) {
       st.setImportStatus(null);
       alert(`Could not load ${name}: ${err instanceof Error ? err.message : String(err)}`);

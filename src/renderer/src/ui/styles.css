@@ -709,6 +709,10 @@ body,
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
+.raster-warn {
+  color: #ffb454;
+  cursor: help;
+}
 
 /* Status bar */
 .statusbar {

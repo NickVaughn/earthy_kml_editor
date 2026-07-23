@@ -30,6 +30,15 @@ electron-builder).
 | electron-store | 8.2.0 | MIT | https://github.com/sindresorhus/electron-store |
 | JSZip | 3.10.1 | MIT (dual: MIT OR GPL-3.0-or-later — MIT elected) | https://stuk.github.io/jszip/ · https://github.com/Stuk/jszip |
 | DOMPurify (via CesiumJS) | 3.4.11 | Apache-2.0 (dual: MPL-2.0 OR Apache-2.0 — Apache-2.0 elected) | https://github.com/cure53/DOMPurify |
+| geotiff.js | 3.0.5 | MIT | https://geotiffjs.github.io · https://github.com/geotiffjs/geotiff.js |
+| └ @petamoriken/float16 | 3.9.3 | MIT | https://github.com/petamoriken/float16 |
+| └ lerc | 2.0.0 | Apache-2.0 | https://github.com/Esri/lerc |
+| └ pako | 3.0.1 | MIT AND Zlib | https://github.com/nodeca/pako |
+| └ parse-headers | 2.0.6 | MIT | https://github.com/kesla/parse-headers |
+| └ quick-lru | 5.1.1 | MIT | https://github.com/sindresorhus/quick-lru |
+| └ web-worker | 1.5.0 | Apache-2.0 | https://github.com/developit/web-worker |
+| └ xml-utils | 1.10.2 | CC0-1.0 | https://github.com/DanielJDufour/xml-utils |
+| └ zstddec | 0.2.0 | MIT AND BSD-3-Clause | https://github.com/donmccurdy/zstddec |
 
 Build-time only tools (Vite, electron-vite, Vitest, TypeScript, ESLint,
 electron-builder, etc.) are **not** distributed in the application and are not
@@ -109,6 +118,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### geotiff.js — MIT (and its dependencies)
+
+Copyright © geotiff.js contributors. Used to decode TIFF compressions the
+bundled GDAL/WASM build has no codec for (JPEG, ZSTD, …). Its dependency tree
+adds Apache-2.0 (lerc, web-worker), MIT AND Zlib (pako), MIT AND BSD-3-Clause
+(zstddec), and CC0-1.0 (xml-utils) components; each is listed in the table
+above with its project page, and full texts ship in `node_modules/<package>/`.
 
 ### DOMPurify — Apache-2.0 (elected)
 

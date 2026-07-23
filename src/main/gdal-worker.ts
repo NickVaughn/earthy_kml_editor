@@ -1,5 +1,7 @@
 import { parentPort } from 'node:worker_threads';
 import { dirname, join, relative } from 'node:path';
+import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import type {
   GdalRequest,
   VectorInfo,
@@ -144,6 +146,159 @@ async function convertVector(
   return { layerName, geojson };
 }
 
+/**
+ * A genuine runtime `import()`. geotiff is ESM-only and this worker is bundled
+ * to CJS, where rollup would rewrite a plain `import()` into `require()` —
+ * which Electron's Node 20 cannot use on an ESM package. Hiding it inside
+ * `new Function` keeps it a real dynamic import.
+ */
+const esmImport = new Function('m', 'return import(m)') as (m: string) => Promise<AnyGdal>;
+
+/** JS typed-array name → VRT dataType + bytes per sample. */
+const VRT_DTYPE: Record<string, [string, number]> = {
+  Int8Array: ['Int8', 1],
+  Uint8Array: ['Byte', 1],
+  Int16Array: ['Int16', 2],
+  Uint16Array: ['UInt16', 2],
+  Int32Array: ['Int32', 4],
+  Uint32Array: ['UInt32', 4],
+  Float32Array: ['Float32', 4],
+  Float64Array: ['Float64', 8],
+};
+
+/** Roughly how much decoded imagery to hold in memory at once while streaming. */
+const STRIP_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Decode a TIFF whose compression GDAL/WASM lacks a codec for (JPEG, ZSTD, …)
+ * using geotiff.js, then re-expose the pixels as a headerless raw file plus a
+ * VRT that GDAL *can* open. Rows are streamed in strips so a large image never
+ * has to fit in memory all at once.
+ *
+ * Returns the paths to hand `Gdal.open` (VRT first, raw as its sidecar) and the
+ * temp directory to delete afterwards.
+ */
+async function decodeViaGeotiff(
+  id: string,
+  path: string,
+): Promise<{ paths: string[]; dir: string }> {
+  // geotiff pulls in `web-worker`, which — when loaded inside a worker_thread —
+  // tries to bootstrap itself AS the worker and destructures an undefined
+  // `workerData`. It skips all that if a global `Worker` already exists, and we
+  // never use geotiff's decoder Pool, so a stub is enough.
+  const g = globalThis as { Worker?: unknown };
+  if (typeof g.Worker !== 'function') {
+    g.Worker = class WorkerStub {
+      constructor() {
+        throw new Error('geotiff decoder pool is not used in Earthy');
+      }
+    };
+  }
+  const { fromFile } = await esmImport('geotiff');
+  const tiff = await fromFile(path);
+  const image = await tiff.getImage();
+
+  const width: number = image.getWidth();
+  const height: number = image.getHeight();
+  const bands: number = image.getSamplesPerPixel();
+  const [originX, originY] = image.getOrigin();
+  const [resX, resY] = image.getResolution();
+  const geoKeys = await image.getGeoKeys();
+  const epsg = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey;
+  if (!epsg) {
+    throw new Error(
+      'This file uses a compression GDAL cannot read here, and it has no EPSG code we can fall back on.',
+    );
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), 'earthy-raster-'));
+  const rawName = 'source.raw';
+  const rawPath = join(dir, rawName);
+  writeFileSync(rawPath, Buffer.alloc(0));
+
+  const bytesPerPixel: number = image.getBytesPerPixel();
+  const rowsPerStrip = Math.max(1, Math.floor(STRIP_BYTES / Math.max(1, width * bytesPerPixel)));
+  let dataType = 'Byte';
+  let sampleBytes = 1;
+
+  for (let top = 0; top < height; top += rowsPerStrip) {
+    const bottom = Math.min(height, top + rowsPerStrip);
+    const strip = await image.readRasters({
+      window: [0, top, width, bottom],
+      interleave: true,
+    });
+    const mapped = VRT_DTYPE[strip.constructor.name];
+    if (!mapped) throw new Error(`Unsupported sample type ${strip.constructor.name}`);
+    [dataType, sampleBytes] = mapped;
+    appendFileSync(rawPath, Buffer.from(strip.buffer, strip.byteOffset, strip.byteLength));
+    progress(id, bottom / height, `Decoding ${Math.round((bottom / height) * 100)}%…`);
+  }
+
+  // Band-interleaved-by-pixel: each band starts one sample further in, and the
+  // stride between pixels is the full pixel width.
+  const pixelOffset = bands * sampleBytes;
+  const lineOffset = width * pixelOffset;
+  const bandXml = Array.from({ length: bands }, (_, i) =>
+    [
+      `  <VRTRasterBand dataType="${dataType}" band="${i + 1}" subClass="VRTRawRasterBand">`,
+      `    <SourceFilename relativeToVRT="1">${rawName}</SourceFilename>`,
+      `    <ImageOffset>${i * sampleBytes}</ImageOffset>`,
+      `    <PixelOffset>${pixelOffset}</PixelOffset>`,
+      `    <LineOffset>${lineOffset}</LineOffset>`,
+      `    <ByteOrder>LSB</ByteOrder>`,
+      `  </VRTRasterBand>`,
+    ].join('\n'),
+  ).join('\n');
+
+  const vrtPath = join(dir, 'source.vrt');
+  writeFileSync(
+    vrtPath,
+    `<VRTDataset rasterXSize="${width}" rasterYSize="${height}">\n` +
+      `  <SRS>EPSG:${epsg}</SRS>\n` +
+      `  <GeoTransform>${originX}, ${resX}, 0, ${originY}, 0, ${resY}</GeoTransform>\n` +
+      `${bandXml}\n</VRTDataset>\n`,
+  );
+
+  return { paths: [vrtPath, rawPath], dir };
+}
+
+/** True for GDAL errors that mean "libtiff has no codec for this compression". */
+function isMissingCodec(message: string): boolean {
+  return /missing codec|compression support is not configured/i.test(message);
+}
+
+/**
+ * Open a raster, transparently falling back to the geotiff.js decode path when
+ * GDAL/WASM lacks the codec. Callers must invoke `cleanup()` when done.
+ */
+async function openRaster(
+  Gdal: AnyGdal,
+  id: string,
+  path: string,
+): Promise<{ dataset: unknown; cleanup: () => void }> {
+  try {
+    const opened = await Gdal.open(path);
+    const dataset = opened.datasets?.[0];
+    if (dataset) return { dataset, cleanup: () => undefined };
+    throw new Error(errText(opened.errors) || 'GDAL could not open this file.');
+  } catch (e) {
+    const msg = errText(e);
+    if (!isMissingCodec(msg)) throw e;
+    progress(id, null, 'Unsupported TIFF codec — decoding directly…');
+    const { paths, dir } = await decodeViaGeotiff(id, path);
+    const cleanup = (): void => rmSync(dir, { recursive: true, force: true });
+    try {
+      const opened = await Gdal.open(paths);
+      const dataset = opened.datasets?.[0];
+      if (!dataset) throw new Error(errText(opened.errors) || 'Could not open decoded raster.');
+      return { dataset, cleanup };
+    } catch (inner) {
+      cleanup();
+      throw inner;
+    }
+  }
+}
+
 /** WGS84 [west, south, east, north] from a gdalinfo -json payload, if derivable. */
 function boundsFromInfo(info: any): [number, number, number, number] | null {
   const wgs = info?.wgs84Extent?.coordinates?.[0];
@@ -162,25 +317,28 @@ function boundsFromInfo(info: any): [number, number, number, number] | null {
 async function inspectRaster(id: string, path: string): Promise<RasterInfo> {
   const Gdal = await loadGdal();
   progress(id, null, 'Reading raster…');
-  const opened = await Gdal.open(path);
-  const dataset = opened.datasets[0];
-  // Note: getInfo() returns only {width,height,bandCount,…} — the corner and
-  // WGS84 extent fields live in gdalinfo's -json payload, so use that.
-  const info: any = await Gdal.gdalinfo(dataset, ['-json']);
-  const width = info?.size?.[0] ?? 0;
-  const height = info?.size?.[1] ?? 0;
-  const bands = (info?.bands?.length ?? 0) as number;
+  const { dataset, cleanup } = await openRaster(Gdal, id, path);
+  try {
+    // Note: getInfo() returns only {width,height,bandCount,…} — the corner and
+    // WGS84 extent fields live in gdalinfo's -json payload, so use that.
+    const info: any = await Gdal.gdalinfo(dataset, ['-json']);
+    const width = info?.size?.[0] ?? 0;
+    const height = info?.size?.[1] ?? 0;
+    const bands = (info?.bands?.length ?? 0) as number;
 
-  await Gdal.close(dataset).catch(() => undefined);
-  return {
-    path,
-    driver: info?.driverShortName ?? 'unknown',
-    width,
-    height,
-    bands,
-    bounds: boundsFromInfo(info),
-    needsTiling: width * height > 8192 * 8192,
-  };
+    await Gdal.close(dataset).catch(() => undefined);
+    return {
+      path,
+      driver: info?.driverShortName ?? 'unknown',
+      width,
+      height,
+      bands,
+      bounds: boundsFromInfo(info),
+      needsTiling: width * height > 8192 * 8192,
+    };
+  } finally {
+    cleanup();
+  }
 }
 
 /**
@@ -195,75 +353,78 @@ async function convertRaster(
 ): Promise<ConvertedRaster> {
   const Gdal = await loadGdal();
   progress(id, null, 'Reading raster…');
-  const opened = await Gdal.open(path);
-  const src = opened.datasets[0];
-  const srcInfo: any = await Gdal.gdalinfo(src, ['-json']);
-  const sourceWidth = srcInfo?.size?.[0] ?? 0;
-  const sourceHeight = srcInfo?.size?.[1] ?? 0;
+  const { dataset: src, cleanup } = await openRaster(Gdal, id, path);
+  try {
+    const srcInfo: any = await Gdal.gdalinfo(src, ['-json']);
+    const sourceWidth = srcInfo?.size?.[0] ?? 0;
+    const sourceHeight = srcInfo?.size?.[1] ?? 0;
 
-  const t0 = Date.now();
-  progress(id, null, 'Reprojecting to EPSG:4326…');
-  // -dstalpha keeps the area outside the (possibly rotated) footprint transparent.
-  const warped = await Gdal.gdalwarp(src, [
-    '-t_srs',
-    'EPSG:4326',
-    '-of',
-    'GTiff',
-    '-dstalpha',
-  ]);
-  const wOpened = await Gdal.open(warped.real ?? warped);
-  const wds = wOpened.datasets[0];
-  const wInfo: any = await Gdal.gdalinfo(wds, ['-json']);
+    const t0 = Date.now();
+    progress(id, null, 'Reprojecting to EPSG:4326…');
+    // -dstalpha keeps the area outside the (possibly rotated) footprint transparent.
+    const warped = await Gdal.gdalwarp(src, [
+      '-t_srs',
+      'EPSG:4326',
+      '-of',
+      'GTiff',
+      '-dstalpha',
+    ]);
+    const wOpened = await Gdal.open(warped.real ?? warped);
+    const wds = wOpened.datasets[0];
+    const wInfo: any = await Gdal.gdalinfo(wds, ['-json']);
 
-  let width = wInfo?.size?.[0] ?? 0;
-  let height = wInfo?.size?.[1] ?? 0;
-  const bounds = boundsFromInfo(wInfo);
-  if (!bounds) throw new Error('Raster has no usable georeferencing.');
+    let width = wInfo?.size?.[0] ?? 0;
+    let height = wInfo?.size?.[1] ?? 0;
+    const bounds = boundsFromInfo(wInfo);
+    if (!bounds) throw new Error('Raster has no usable georeferencing.');
 
-  const args: string[] = ['-of', 'PNG'];
+    const args: string[] = ['-of', 'PNG'];
 
-  // PNG takes at most 4 bands; keep the first three plus the alpha we just added.
-  const bandTypes: string[] = (wInfo?.bands ?? []).map((b: any) => b.colorInterpretation === 'Alpha' ? 'Alpha' : b.type);
-  const bandCount = (wInfo?.bands ?? []).length;
-  if (bandCount > 4) {
-    args.push('-b', '1', '-b', '2', '-b', '3', '-b', String(bandCount));
+    // PNG takes at most 4 bands; keep the first three plus the alpha we just added.
+    const bandTypes: string[] = (wInfo?.bands ?? []).map((b: any) => b.colorInterpretation === 'Alpha' ? 'Alpha' : b.type);
+    const bandCount = (wInfo?.bands ?? []).length;
+    if (bandCount > 4) {
+      args.push('-b', '1', '-b', '2', '-b', '3', '-b', String(bandCount));
+    }
+
+    // PNG only stores Byte/UInt16 — rescale anything else into 8-bit.
+    const nonByte = (wInfo?.bands ?? []).some(
+      (b: any) => b.type !== 'Byte' && b.colorInterpretation !== 'Alpha',
+    );
+    if (nonByte) args.push('-ot', 'Byte', '-scale');
+    void bandTypes;
+
+    let downsampled = false;
+    if (maxDimension && Math.max(width, height) > maxDimension) {
+      const scale = maxDimension / Math.max(width, height);
+      width = Math.max(1, Math.round(width * scale));
+      height = Math.max(1, Math.round(height * scale));
+      args.push('-outsize', String(width), String(height));
+      downsampled = true;
+    }
+
+    progress(id, null, `Encoding ${width}×${height} PNG…`);
+    const out = await Gdal.gdal_translate(wds, args);
+    const png = await Gdal.getFileBytes(out.real ?? out);
+    const gdalMs = Date.now() - t0;
+
+    await Gdal.close(src).catch(() => undefined);
+    await Gdal.close(wds).catch(() => undefined);
+
+    return {
+      path,
+      png,
+      width,
+      height,
+      sourceWidth,
+      sourceHeight,
+      bounds,
+      gdalMs,
+      downsampled,
+    };
+  } finally {
+    cleanup();
   }
-
-  // PNG only stores Byte/UInt16 — rescale anything else into 8-bit.
-  const nonByte = (wInfo?.bands ?? []).some(
-    (b: any) => b.type !== 'Byte' && b.colorInterpretation !== 'Alpha',
-  );
-  if (nonByte) args.push('-ot', 'Byte', '-scale');
-  void bandTypes;
-
-  let downsampled = false;
-  if (maxDimension && Math.max(width, height) > maxDimension) {
-    const scale = maxDimension / Math.max(width, height);
-    width = Math.max(1, Math.round(width * scale));
-    height = Math.max(1, Math.round(height * scale));
-    args.push('-outsize', String(width), String(height));
-    downsampled = true;
-  }
-
-  progress(id, null, `Encoding ${width}×${height} PNG…`);
-  const out = await Gdal.gdal_translate(wds, args);
-  const png = await Gdal.getFileBytes(out.real ?? out);
-  const gdalMs = Date.now() - t0;
-
-  await Gdal.close(src).catch(() => undefined);
-  await Gdal.close(wds).catch(() => undefined);
-
-  return {
-    path,
-    png,
-    width,
-    height,
-    sourceWidth,
-    sourceHeight,
-    bounds,
-    gdalMs,
-    downsampled,
-  };
 }
 
 parentPort?.on('message', async (req: GdalRequest) => {
