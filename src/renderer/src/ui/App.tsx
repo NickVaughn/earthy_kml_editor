@@ -6,6 +6,7 @@ import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
 import { isVectorPath, isRasterPath } from '@shared/gdal';
 import { useKeybindings } from '@renderer/input/useKeybindings';
+import { withGdalJob, GdalCancelled, gdalJobActive } from '@renderer/state/gdalJob';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
@@ -14,6 +15,7 @@ import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
 import { RasterPanel } from './RasterPanel';
+import { JobProgress } from './JobProgress';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
 
@@ -128,6 +130,14 @@ export function App(): JSX.Element {
       globe.destroy();
       globeRef.current = null;
     };
+  }, []);
+
+  // ---- GDAL progress: feed the worker's reports into the progress bar -----
+  useEffect(() => {
+    return window.api.onGdalProgress((p) => {
+      if (!gdalJobActive()) return;
+      useStore.getState().setGdalJob({ message: p.message, fraction: p.fraction });
+    });
   }, []);
 
   // ---- initial settings + key probe ---------------------------------------
@@ -255,8 +265,10 @@ export function App(): JSX.Element {
     try {
       // Work out the whole cost first — reprojected size, whether the codec
       // forces a decode, and the temp disk that needs — without touching pixels.
-      st.setImportStatus(`Inspecting ${name}…`);
-      const plan = await window.api.planRaster(path);
+      st.setImportStatus(null);
+      const plan = await withGdalJob(`Inspecting ${name}…`, () =>
+        window.api.planRaster(path),
+      );
       if (!plan.bounds) {
         st.setImportStatus(null);
         alert(`${name} has no georeferencing Earthy can read, so it can't be placed.`);
@@ -277,11 +289,11 @@ export function App(): JSX.Element {
         return;
       }
 
-      st.setImportStatus(
-        `Warping ${name} (${plan.sourceWidth.toLocaleString()}×${plan.sourceHeight.toLocaleString()})…`,
-      );
       const t0 = performance.now();
-      const conv = await window.api.convertRaster(path, maxTex);
+      const conv = await withGdalJob(
+        `Warping ${name} (${plan.sourceWidth.toLocaleString()}×${plan.sourceHeight.toLocaleString()})…`,
+        () => window.api.convertRaster(path, maxTex),
+      );
       const ipcMs = performance.now() - t0 - conv.gdalMs;
 
       st.setImportStatus(`Uploading ${conv.width.toLocaleString()}×${conv.height.toLocaleString()}…`);
@@ -323,6 +335,10 @@ export function App(): JSX.Element {
       );
     } catch (err) {
       st.setImportStatus(null);
+      if (err instanceof GdalCancelled) {
+        flash(`Cancelled loading ${name}.`);
+        return;
+      }
       alert(`Could not load ${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, []);
@@ -381,17 +397,22 @@ export function App(): JSX.Element {
           openPath(p);
         } else if (isVectorPath(p)) {
           // Any other OGR-readable vector: inspect, then offer import options.
-          useStore.getState().setImportStatus(`Reading ${p.split('/').pop()}…`);
           try {
-            const info = await window.api.inspectVector(p);
+            const info = await withGdalJob(`Reading ${p.split('/').pop()}…`, () =>
+              window.api.inspectVector(p),
+            );
             useStore.getState().setImportStatus(null);
             if (info.layers.length) useStore.getState().setPendingImport({ path: p, info });
             else alert('No readable layers found in that file.');
           } catch (err) {
             useStore.getState().setImportStatus(null);
-            alert(`Could not read ${p.split('/').pop()}: ${
-              err instanceof Error ? err.message : String(err)
-            }`);
+            if (err instanceof GdalCancelled) {
+              flash(`Cancelled reading ${p.split('/').pop()}.`);
+            } else {
+              alert(`Could not read ${p.split('/').pop()}: ${
+                err instanceof Error ? err.message : String(err)
+              }`);
+            }
           }
         } else if (isRasterPath(p)) {
           await loadRaster(p);
@@ -490,6 +511,7 @@ export function App(): JSX.Element {
               onClose={() => useStore.getState().openBalloon(null)}
             />
           )}
+          <JobProgress />
           {featureMenu && (
             <FeatureContextMenu
               nodeId={featureMenu.nodeId}

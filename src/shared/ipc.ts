@@ -71,6 +71,8 @@ export interface Api {
   inspectVector(path: string): Promise<import('./gdal').VectorInfo>;
   convertVector(path: string, layerName: string): Promise<import('./gdal').ConvertedLayer>;
   inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
+  /** Abort the running GDAL job (terminates and respawns the worker). */
+  cancelGdal(): Promise<void>;
   planRaster(path: string): Promise<import('./gdal').RasterPlan>;
   convertRaster(
     path: string,

@@ -20,6 +20,7 @@ import {
   inspectRaster,
   planRaster,
   convertRaster,
+  cancelGdal,
   shutdownGdal,
 } from './gdal';
 import type { SaveRequest, GoogleMapType } from '@shared/ipc';
@@ -230,6 +231,7 @@ function registerIpc(): void {
     convertVector(path, layerName),
   );
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
+  ipcMain.handle('gdal-cancel', () => cancelGdal());
   ipcMain.handle('gdal-plan-raster', (_e, path: string) => planRaster(path));
   ipcMain.handle('gdal-convert-raster', (_e, path: string, maxDimension?: number) =>
     convertRaster(path, maxDimension),

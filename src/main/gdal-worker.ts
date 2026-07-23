@@ -1,6 +1,13 @@
 import { parentPort } from 'node:worker_threads';
 import { dirname, join, relative } from 'node:path';
-import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  appendFileSync,
+  rmSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import type {
   GdalRequest,
@@ -36,6 +43,27 @@ function loadGdal(): Promise<AnyGdal> {
   })();
   return gdalPromise;
 }
+
+/**
+ * Remove temp directories left behind by a previous run. Cancelling a job
+ * terminates this worker outright, so the `finally` that would have cleaned up
+ * never runs; each fresh worker tidies up after the last one.
+ */
+function sweepStaleTempDirs(): void {
+  try {
+    const dir = tmpdir();
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith('earthy-raster-') && !name.startsWith('earthy-plan-')) continue;
+      const full = join(dir, name);
+      // Leave anything recent alone — another worker could still be using it.
+      if (Date.now() - statSync(full).mtimeMs < 60 * 60 * 1000) continue;
+      rmSync(full, { recursive: true, force: true });
+    }
+  } catch {
+    // Best-effort housekeeping; never let it break startup.
+  }
+}
+sweepStaleTempDirs();
 
 function post(msg: unknown): void {
   parentPort?.postMessage(msg);

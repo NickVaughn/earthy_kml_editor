@@ -87,6 +87,22 @@ export function convertRaster(
   return request<ConvertedRaster>({ type: 'convertRaster', path, maxDimension });
 }
 
+/** Marker on the rejection a cancel produces, so callers can tell it apart. */
+export const GDAL_CANCELLED = 'EARTHY_GDAL_CANCELLED';
+
+/**
+ * Abort whatever GDAL is doing. A `gdalwarp` call is synchronous inside the
+ * WASM runtime and cannot be interrupted cooperatively, so the only reliable
+ * stop is to terminate the worker; the next request lazily spawns a fresh one
+ * (which also re-loads the WASM, taking a second or two).
+ */
+export function cancelGdal(): void {
+  for (const [, entry] of pending) entry.reject(new Error(GDAL_CANCELLED));
+  pending.clear();
+  worker?.terminate();
+  worker = null;
+}
+
 export function shutdownGdal(): void {
   worker?.terminate();
   worker = null;

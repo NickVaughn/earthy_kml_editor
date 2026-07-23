@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useStore } from '@renderer/state/store';
+import { withGdalJob, GdalCancelled } from '@renderer/state/gdalJob';
 import {
   RAMPS,
   rampColor,
@@ -80,7 +81,9 @@ export function ImportDialog(): JSX.Element | null {
 
   const convert = async (): Promise<string> => {
     if (cache.current?.layer === layer.name) return cache.current.geojson;
-    const converted = await window.api.convertVector(pending.path, layer.name);
+    const converted = await withGdalJob(`Converting ${layer.name}…`, () =>
+      window.api.convertVector(pending.path, layer.name),
+    );
     cache.current = { layer: layer.name, geojson: converted.geojson };
     return converted.geojson;
   };
@@ -96,6 +99,7 @@ export function ImportDialog(): JSX.Element | null {
       setStep(2);
     } catch (err) {
       setImportStatus(null);
+      if (err instanceof GdalCancelled) return;
       alert(`Could not read categories: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
@@ -113,6 +117,7 @@ export function ImportDialog(): JSX.Element | null {
       setStep(3);
     } catch (err) {
       setImportStatus(null);
+      if (err instanceof GdalCancelled) return;
       alert(`Could not read folders: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
@@ -147,6 +152,7 @@ export function ImportDialog(): JSX.Element | null {
       close();
     } catch (err) {
       setImportStatus(null);
+      if (err instanceof GdalCancelled) return;
       alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);

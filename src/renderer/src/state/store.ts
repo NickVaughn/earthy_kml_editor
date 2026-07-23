@@ -76,6 +76,8 @@ interface AppState {
   pendingImport: { path: string; info: VectorInfo } | null;
   /** Non-null while a GDAL job is running (shown as a status message). */
   importStatus: string | null;
+  /** The running GDAL job, driving the progress bar + cancel button. */
+  gdalJob: { message: string; fraction: number | null } | null;
   /** Keyboard-shortcut help overlay. */
   helpOpen: boolean;
 
@@ -151,6 +153,7 @@ interface AppState {
   // import
   setPendingImport(v: { path: string; info: VectorInfo } | null): void;
   setImportStatus(s: string | null): void;
+  setGdalJob(j: { message: string; fraction: number | null } | null): void;
   /** Build KML from converted GeoJSON and insert it as one undoable step. */
   importGeoJson(geojson: string, opts: ImportOptions): number;
 }
@@ -194,6 +197,7 @@ export const useStore = create<AppState>((set, get) => {
     measureResult: null,
     pendingImport: null,
     importStatus: null,
+    gdalJob: null,
     helpOpen: false,
     restyleIds: null,
     descEditId: null,
@@ -476,6 +480,9 @@ export const useStore = create<AppState>((set, get) => {
     },
     setImportStatus(s) {
       set({ importStatus: s });
+    },
+    setGdalJob(j) {
+      set({ gdalJob: j });
     },
     importGeoJson(geojson, opts) {
       // Import into the selected document, else the active one, else a new file.
