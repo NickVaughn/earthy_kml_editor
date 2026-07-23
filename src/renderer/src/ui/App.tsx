@@ -4,7 +4,7 @@ import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
-import { isVectorPath } from '@shared/gdal';
+import { isVectorPath, isRasterPath } from '@shared/gdal';
 import { useKeybindings } from '@renderer/input/useKeybindings';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
@@ -15,6 +15,16 @@ import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
+
+/** Show a transient message in the status strip. */
+function flash(message: string, ms = 5000): void {
+  useStore.getState().setImportStatus(message);
+  setTimeout(() => {
+    if (useStore.getState().importStatus === message) {
+      useStore.getState().setImportStatus(null);
+    }
+  }, ms);
+}
 
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
@@ -242,6 +252,14 @@ export function App(): JSX.Element {
               err instanceof Error ? err.message : String(err)
             }`);
           }
+        } else {
+          // Don't swallow the drop silently — say why nothing happened.
+          const name = p.split('/').pop();
+          flash(
+            isRasterPath(p)
+              ? `Raster import isn’t supported yet — ${name} was not opened.`
+              : `Unsupported file type: ${name}`,
+          );
         }
       }
     });
