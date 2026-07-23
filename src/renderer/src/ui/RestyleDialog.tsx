@@ -5,6 +5,7 @@ import type { StylePatch } from '@renderer/model/bulkStyle';
 import { kmlToHexRgb, kmlToRgba, hexRgbToKml } from '@renderer/model/colors';
 import {
   RAMPS,
+  rampColor,
   defaultCategories,
   placemarkFieldValue,
   NAME_FIELD,
@@ -108,13 +109,24 @@ export function RestyleDialog({
     return out;
   }, [field, t.nodes]);
 
-  // (Re)seed category specs when the field, ramp, or global style knobs change.
+  // Seed category specs when the field (or its set of values) changes. The
+  // global knobs below patch the seeded categories in place rather than
+  // reseeding, so per-category fine-tuning survives.
   useEffect(() => {
     if (field) {
       setCategories(defaultCategories(distinct, { ramp, fillMode, fillOpacity, lineOpacity }));
       setEditingCat(null);
     }
-  }, [field, distinct, ramp, fillMode, fillOpacity, lineOpacity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [field, distinct]);
+
+  const patchAllCategories = (p: Partial<CategorySpec>): void =>
+    setCategories((prev) => prev.map((c) => ({ ...c, ...p })));
+
+  const changeRamp = (r: RampName): void => {
+    setRamp(r);
+    setCategories((prev) => prev.map((c, i) => ({ ...c, color: rampColor(r, i, prev.length) })));
+  };
 
   if (t.nodes.length === 0) return null;
 
@@ -169,7 +181,7 @@ export function RestyleDialog({
           <>
             <label className="insp-row">
               <span>Ramp</span>
-              <select value={ramp} onChange={(e) => setRamp(e.target.value as RampName)}>
+              <select value={ramp} onChange={(e) => changeRamp(e.target.value as RampName)}>
                 {RAMPS.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.label}
@@ -179,7 +191,14 @@ export function RestyleDialog({
             </label>
             <label className="insp-row">
               <span>Style</span>
-              <select value={fillMode} onChange={(e) => setFillMode(e.target.value as FillMode)}>
+              <select
+                value={fillMode}
+                onChange={(e) => {
+                  const m = e.target.value as FillMode;
+                  setFillMode(m);
+                  patchAllCategories({ fillMode: m });
+                }}
+              >
                 {FILL_MODES.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
@@ -196,7 +215,11 @@ export function RestyleDialog({
                   max="1"
                   step="0.05"
                   value={lineOpacity}
-                  onChange={(e) => setLineOpacity(Number(e.target.value))}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setLineOpacity(v);
+                    patchAllCategories({ lineOpacity: v });
+                  }}
                 />
                 <span className="opacity-val">{Math.round(lineOpacity * 100)}%</span>
               </label>
@@ -210,7 +233,11 @@ export function RestyleDialog({
                   max="1"
                   step="0.05"
                   value={fillOpacity}
-                  onChange={(e) => setFillOpacity(Number(e.target.value))}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setFillOpacity(v);
+                    patchAllCategories({ fillOpacity: v });
+                  }}
                 />
                 <span className="opacity-val">{Math.round(fillOpacity * 100)}%</span>
               </label>
