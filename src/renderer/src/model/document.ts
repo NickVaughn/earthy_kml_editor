@@ -557,6 +557,36 @@ export class KmlDocument {
     });
   }
 
+  /** Register/unregister a set of shared styles on the root (for import undo). */
+  private styleRegistrar(styles: KmlStyle[]): { add(): void; remove(): void } {
+    const entries: SharedStyleEntry[] = styles
+      .filter((s) => !!s.id)
+      .map((style) => ({ kind: 'Style', style }));
+    return {
+      add: () => {
+        for (const e of entries) {
+          const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
+          if (e.kind === 'Style') this.data.sharedStyles.set(id, e.style);
+          (this.data.root.styles ??= []).push(e);
+          if (!this.data.sharedOrder.includes(id)) this.data.sharedOrder.push(id);
+        }
+      },
+      remove: () => {
+        for (const e of entries) {
+          const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
+          this.data.sharedStyles.delete(id);
+          const list = this.data.root.styles;
+          if (list) {
+            const i = list.indexOf(e);
+            if (i >= 0) list.splice(i, 1);
+          }
+          const oi = this.data.sharedOrder.indexOf(id);
+          if (oi >= 0) this.data.sharedOrder.splice(oi, 1);
+        }
+      },
+    };
+  }
+
   /**
    * Insert an imported layer (folder + its shared styles) as ONE undoable
    * operation. Used by the GDAL vector import.
@@ -566,46 +596,49 @@ export class KmlDocument {
     if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
     const container = parent ?? this.data.root;
 
-    const entries: SharedStyleEntry[] = styles
-      .filter((s) => !!s.id)
-      .map((style) => ({ kind: 'Style', style }));
-
-    const addStyles = (): void => {
-      for (const e of entries) {
-        const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
-        if (e.kind === 'Style') this.data.sharedStyles.set(id, e.style);
-        (this.data.root.styles ??= []).push(e);
-        if (!this.data.sharedOrder.includes(id)) this.data.sharedOrder.push(id);
-      }
-    };
-    const removeStyles = (): void => {
-      for (const e of entries) {
-        const id = e.kind === 'Style' ? e.style.id! : e.map.id!;
-        this.data.sharedStyles.delete(id);
-        const list = this.data.root.styles;
-        if (list) {
-          const i = list.indexOf(e);
-          if (i >= 0) list.splice(i, 1);
-        }
-        const oi = this.data.sharedOrder.indexOf(id);
-        if (oi >= 0) this.data.sharedOrder.splice(oi, 1);
-      }
-    };
-
-    addStyles();
+    const s = this.styleRegistrar(styles);
+    s.add();
     const att = this.attach(container.id, undefined, [folder]);
     this.pushExternalUndo(
       'Import layer',
       () => {
         att.revert();
-        removeStyles();
+        s.remove();
       },
       () => {
-        addStyles();
+        s.add();
         att.apply();
       },
     );
     return folder.id;
+  }
+
+  /**
+   * Import a built layer AS the document itself: the layer's name becomes the
+   * document name and its contents live directly under the root — no wrapper
+   * folder. Used when importing into a fresh, empty document.
+   */
+  importAsRoot(folder: KmlNode, styles: KmlStyle[]): void {
+    const root = this.data.root;
+    const s = this.styleRegistrar(styles);
+    const prevName = root.name;
+    const prevChildren = [...root.children];
+    const incoming = [...folder.children];
+
+    const apply = (): void => {
+      root.name = folder.name;
+      root.children = [...prevChildren, ...incoming];
+      s.add();
+      this.reindex();
+    };
+    const revert = (): void => {
+      root.name = prevName;
+      root.children = [...prevChildren];
+      s.remove();
+      this.reindex();
+    };
+    apply();
+    this.pushExternalUndo('Import layer', revert, apply);
   }
 
   /** Set a placemark's description (inspector). Undoable. */

@@ -326,4 +326,30 @@ describe('vector import', () => {
     expect(doc.stats().features).toBe(before);
     expect(serializeKml(doc.data)).not.toContain('nge-cat-');
   });
+
+  it('imports as the document root: names the doc, no wrapper folder', () => {
+    const doc = KmlDocument.empty();
+    const res = geojsonToFolder(PARCELS, {
+      layerName: 'Parcels',
+      nameField: 'NAME',
+      groupField: 'ZONE',
+      styleMode: 'categorized',
+      categoryField: 'ZONE',
+    });
+    doc.importAsRoot(res.folder, res.styles);
+
+    // The document takes the layer's name...
+    expect(doc.root.name).toBe('Parcels');
+    // ...and the ZONE folders sit directly under the root — no "Parcels" wrapper.
+    expect(doc.root.children.every((c) => c.type === 'Folder')).toBe(true);
+    expect(doc.root.children.some((c) => c.name === 'Parcels')).toBe(false);
+    expect(doc.root.children.map((c) => c.name).sort()).toEqual(['C2', 'R1']);
+    expect(doc.placemarksUnder().length).toBe(2);
+
+    // Undo restores the empty, untitled document.
+    doc.undo();
+    expect(doc.root.name).toBe('Untitled');
+    expect(doc.root.children.length).toBe(0);
+    expect(serializeKml(doc.data)).not.toContain('nge-cat-');
+  });
 });

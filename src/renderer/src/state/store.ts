@@ -396,17 +396,27 @@ export const useStore = create<AppState>((set, get) => {
     },
     importGeoJson(geojson, opts) {
       // Import into the selected document, else the active one, else a new file.
-      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      const selId = get().selection[0];
+      let doc = selId ? get().docOf(selId) : get().activeDoc();
       let newDoc = false;
       if (!doc) {
         doc = get().newDocument();
         newDoc = true;
       }
       const built = geojsonToFolder(geojson, opts);
-      const parentId = get().selection[0] ?? doc.root.id;
-      doc.importFolder(parentId, built.folder, built.styles);
-      set({ selection: [built.folder.id], activeDocId: doc.id });
-      if (!newDoc) bumpScene();
+      if (newDoc) {
+        // Fresh workspace: the imported layer *is* the document — its name
+        // becomes the file name and its contents sit directly under the root.
+        doc.importAsRoot(built.folder, built.styles);
+        set({ selection: [doc.root.id], activeDocId: doc.id });
+      } else {
+        // Existing document: nest the layer in its own folder so it stays
+        // grouped alongside whatever is already there.
+        const parentId = selId ?? doc.root.id;
+        doc.importFolder(parentId, built.folder, built.styles);
+        set({ selection: [built.folder.id], activeDocId: doc.id });
+        bumpScene();
+      }
       return built.featureCount;
     },
   };
