@@ -4,7 +4,7 @@
   "description": "NGE — a lean cross-platform desktop KML viewer/editor (Non-Google Earth)",
   "main": "out/main/index.js",
   "author": "NickVaughn",
-  "license": "MIT",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
