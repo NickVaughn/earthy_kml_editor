@@ -30,6 +30,7 @@ const api: Api = {
     ipcRenderer.invoke('gdal-convert-vector', path, layerName),
   inspectRaster: (path) => ipcRenderer.invoke('gdal-inspect-raster', path),
   cancelGdal: () => ipcRenderer.invoke('gdal-cancel'),
+  tileRaster: (path) => ipcRenderer.invoke('gdal-tile-raster', path),
   planRaster: (path) => ipcRenderer.invoke('gdal-plan-raster', path),
   convertRaster: (path, maxDimension) =>
     ipcRenderer.invoke('gdal-convert-raster', path, maxDimension),

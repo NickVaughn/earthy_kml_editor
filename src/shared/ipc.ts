@@ -75,6 +75,8 @@ export interface Api {
   inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
   /** Abort the running GDAL job (terminates and respawns the worker). */
   cancelGdal(): Promise<void>;
+  /** Build (or reuse) an XYZ tile pyramid for a large raster. */
+  tileRaster(path: string): Promise<import('./gdal').TiledRaster>;
   planRaster(path: string): Promise<import('./gdal').RasterPlan>;
   convertRaster(
     path: string,

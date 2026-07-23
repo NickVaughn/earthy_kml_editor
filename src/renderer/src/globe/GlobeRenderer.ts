@@ -17,11 +17,13 @@ import {
   KeyboardEventModifier,
   ImageryLayer,
   SingleTileImageryProvider,
+  UrlTemplateImageryProvider,
   Rectangle,
   defined,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
 import type { Position, Geometry, KmlNode } from '@renderer/model/types';
+import { tiledOverlayInfo, tileUrlTemplate } from '@renderer/model/overlays';
 import { buildScene, type SceneHandle } from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
@@ -199,6 +201,26 @@ export class GlobeRenderer {
         continue;
       }
       if (this.overlayPending.has(id)) continue; // already being created
+
+      const b = node.overlay!.box!;
+      const rectangle = Rectangle.fromDegrees(b.west, b.south, b.east, b.north);
+
+      // A tiled raster renders from the local pyramid rather than one image.
+      const tiles = tiledOverlayInfo(node);
+      if (tiles) {
+        const provider = new UrlTemplateImageryProvider({
+          url: tileUrlTemplate(tiles.hash),
+          rectangle,
+          minimumLevel: tiles.minZoom,
+          maximumLevel: tiles.maxZoom,
+        });
+        const layer = this.viewer.imageryLayers.addImageryProvider(provider);
+        layer.show = doc.isEffectivelyVisible(node);
+        layer.alpha = overlayAlpha(node);
+        this.overlayLayers.set(id, { layer, href: node.overlay!.href! });
+        continue;
+      }
+
       const url = this.overlayImageUrl(doc, node.overlay!.href!);
       if (!url) {
         console.warn(`[earthy] overlay "${node.name}": cannot resolve ${node.overlay!.href}`);
@@ -206,10 +228,7 @@ export class GlobeRenderer {
       }
       this.overlayPending.add(id);
       try {
-        const b = node.overlay!.box!;
-        const provider = await SingleTileImageryProvider.fromUrl(url, {
-          rectangle: Rectangle.fromDegrees(b.west, b.south, b.east, b.north),
-        });
+        const provider = await SingleTileImageryProvider.fromUrl(url, { rectangle });
         // The document may have changed while the image decoded.
         if (!this.nodeById(id)) continue;
         const layer = this.viewer.imageryLayers.addImageryProvider(provider);

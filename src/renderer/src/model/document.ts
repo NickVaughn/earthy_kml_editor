@@ -4,6 +4,7 @@ import { effectiveStyle } from './style';
 import { nextId } from './ids';
 import { applyBulkStyle, type StylePatch } from './bulkStyle';
 import { buildStyle, placemarkFieldValue, type CategorySpec } from './geojson';
+import { tileMarkerExtendedData } from './overlays';
 import type {
   KmlDocumentData,
   KmlNode,
@@ -686,6 +687,41 @@ export class KmlDocument {
         att.apply();
       },
     );
+    return node.id;
+  }
+
+  /**
+   * Add a large raster as a *tiled* GroundOverlay: the node references the
+   * source file and carries a marker naming its local tile pyramid, so no
+   * image is embedded in the document. One undoable step.
+   */
+  addTiledOverlay(
+    parentId: string | null,
+    o: {
+      name: string;
+      sourcePath: string;
+      box: LatLonBox;
+      marker: { hash: string; minZoom: number; maxZoom: number };
+    },
+  ): string {
+    let parent = parentId ? this.nodeById(parentId) : this.data.root;
+    if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
+    const container = parent ?? this.data.root;
+
+    const node: KmlNode = {
+      id: nextId(),
+      type: 'GroundOverlay',
+      name: o.name,
+      visible: true,
+      children: [],
+      unknownChildren: [],
+      attrs: {},
+      overlay: { href: o.sourcePath, box: { ...o.box } },
+      extendedData: tileMarkerExtendedData(o.marker),
+    };
+
+    const att = this.attach(container.id, undefined, [node]);
+    this.pushExternalUndo('Add tiled overlay', att.revert, att.apply);
     return node.id;
   }
 

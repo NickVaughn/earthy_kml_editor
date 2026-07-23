@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron';
-import { join } from 'node:path';
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 'electron';
+import { join, normalize, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { watch, type FSWatcher } from 'node:fs';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
@@ -20,6 +21,8 @@ import {
   inspectRaster,
   planRaster,
   convertRaster,
+  tileRaster,
+  tilesRoot,
   cancelGdal,
   shutdownGdal,
 } from './gdal';
@@ -54,6 +57,38 @@ function watchFile(path: string): void {
   } catch {
     watcher = null;
   }
+}
+
+/** 1×1 transparent PNG, served where a pyramid has no tile. */
+const EMPTY_TILE = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * Serve generated raster tiles to the renderer as
+ * `earthy-tiles://<hash>/<z>/<x>/<y>.png`. Paths are resolved strictly inside
+ * the tile cache so a crafted URL can't read elsewhere on disk.
+ */
+function registerTileProtocol(): void {
+  protocol.handle('earthy-tiles', async (request) => {
+    try {
+      const url = new URL(request.url);
+      const root = tilesRoot();
+      const target = normalize(join(root, url.hostname, decodeURIComponent(url.pathname)));
+      if (target !== root && !target.startsWith(root + sep)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      return await net.fetch(pathToFileURL(target).toString());
+    } catch {
+      // Cesium asks for tiles outside the pyramid's coverage; answer with a
+      // transparent tile instead of an error so it doesn't log for every miss.
+      return new Response(EMPTY_TILE, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      });
+    }
+  });
 }
 
 function createWindow(): void {
@@ -232,6 +267,7 @@ function registerIpc(): void {
   );
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
   ipcMain.handle('gdal-cancel', () => cancelGdal());
+  ipcMain.handle('gdal-tile-raster', (_e, path: string) => tileRaster(path));
   ipcMain.handle('gdal-plan-raster', (_e, path: string) => planRaster(path));
   ipcMain.handle('gdal-convert-raster', (_e, path: string, maxDimension?: number) =>
     convertRaster(path, maxDimension),
@@ -287,8 +323,17 @@ app.on('open-file', (event, path) => {
   }
 });
 
+// Must be declared before the app is ready, or the renderer can't load tiles.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'earthy-tiles',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
+]);
+
 app.whenReady().then(() => {
   pendingOpenPath = argvPath(process.argv.slice(1)) ?? pendingOpenPath;
+  registerTileProtocol();
   registerIpc();
   buildMenu();
   createWindow();

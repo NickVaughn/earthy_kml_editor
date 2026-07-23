@@ -15,6 +15,11 @@ import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
 import { JobProgress } from './JobProgress';
+import {
+  RasterChoiceDialog,
+  type RasterChoice,
+  type RasterChoiceInfo,
+} from './RasterChoiceDialog';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
 
@@ -38,59 +43,8 @@ function bytesToDataUrl(bytes: Uint8Array, mime = 'image/png'): string {
   return `data:${mime};base64,${btoa(binary)}`;
 }
 
-/** Temp-disk usage worth warning about before committing to a decode. */
+/** Temp-disk usage worth surfacing before committing to a decode. */
 const BIG_TEMP_DISK = 512 * 1024 * 1024;
-
-function fmtBytes(n: number): string {
-  return n >= 1024 ** 3
-    ? `${(n / 1024 ** 3).toFixed(1)} GB`
-    : `${Math.round(n / 1024 ** 2)} MB`;
-}
-
-/**
- * Spell out what loading a raster will cost — resampling for the GPU limit and
- * temporary disk for an unsupported codec — and let the user back out. Returns
- * false only if they cancel; stays silent for unremarkable files so routine
- * loads aren't nagged.
- */
-function confirmRasterCost(
-  name: string,
-  plan: import('@shared/gdal').RasterPlan,
-  o: { maxTex: number; willResample: boolean; finalW: number; finalH: number },
-): boolean {
-  if (!o.willResample && plan.tempDiskBytes < BIG_TEMP_DISK) return true;
-
-  const lines = [
-    `${name} is ${plan.sourceWidth.toLocaleString()}×${plan.sourceHeight.toLocaleString()} px, ` +
-      `${plan.bands} band${plan.bands === 1 ? '' : 's'}.`,
-    '',
-  ];
-  if (o.willResample) {
-    const pct = Math.round((o.finalW / plan.warpedWidth) * 100);
-    lines.push(
-      `Reprojected it becomes ${plan.warpedWidth.toLocaleString()}×${plan.warpedHeight.toLocaleString()} px, ` +
-        `which is past this GPU's maximum texture size of ${o.maxTex.toLocaleString()} px.`,
-      `To fit in a single overlay it must be RESAMPLED down to ` +
-        `${o.finalW.toLocaleString()}×${o.finalH.toLocaleString()} px — about ${pct}% of full ` +
-        `resolution — so fine detail will be lost. (Tiled rendering would avoid this.)`,
-      '',
-    );
-  }
-  if (plan.tempDiskBytes > 0) {
-    lines.push(
-      `Its compression isn't supported by the bundled GDAL, so Earthy will decode it first, ` +
-        `using about ${fmtBytes(plan.tempDiskBytes)} of temporary disk space ` +
-        `(freed once loading finishes).`,
-      '',
-    );
-  }
-  lines.push(
-    `It will occupy roughly ${fmtBytes(o.finalW * o.finalH * 4)} of video memory.`,
-    '',
-    'Continue?',
-  );
-  return window.confirm(lines.join('\n'));
-}
 
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
@@ -110,6 +64,18 @@ export function App(): JSX.Element {
     x: number;
     y: number;
   } | null>(null);
+  const [rasterChoice, setRasterChoice] = useState<RasterChoiceInfo | null>(null);
+  const rasterChoiceResolve = useRef<((c: RasterChoice) => void) | null>(null);
+
+  /** Show the tile/resample dialog and wait for the answer. */
+  const askRasterChoice = useCallback(
+    (info: RasterChoiceInfo) =>
+      new Promise<RasterChoice>((resolve) => {
+        rasterChoiceResolve.current = resolve;
+        setRasterChoice(info);
+      }),
+    [],
+  );
 
   const store = useStore();
   useKeybindings(globeRef);
@@ -296,8 +262,49 @@ export function App(): JSX.Element {
       const finalW = Math.round(plan.warpedWidth * scale);
       const finalH = Math.round(plan.warpedHeight * scale);
 
-      if (!confirmRasterCost(name, plan, { maxTex, willResample, finalW, finalH })) {
+      // Ask how to bring it in when a single overlay would lose detail, or when
+      // the decode would cost serious temp disk. Otherwise just drape it.
+      let choice: RasterChoice = 'resample';
+      if (willResample || plan.tempDiskBytes >= BIG_TEMP_DISK) {
+        choice = await askRasterChoice({
+          name,
+          plan,
+          maxTex,
+          willResample,
+          finalW,
+          finalH,
+        });
+      }
+      if (choice === 'cancel') {
         st.setImportStatus(null);
+        return;
+      }
+
+      if (choice === 'tile') {
+        const tiled = await withGdalJob(`Tiling ${name}…`, () => window.api.tileRaster(path));
+        st.addTiledOverlay({
+          name,
+          sourcePath: path,
+          box: {
+            west: tiled.bounds[0],
+            south: tiled.bounds[1],
+            east: tiled.bounds[2],
+            north: tiled.bounds[3],
+          },
+          marker: { hash: tiled.hash, minZoom: tiled.minZoom, maxZoom: tiled.maxZoom },
+        });
+        globe.flyToBounds(tiled.bounds);
+        console.info(
+          `[earthy] tiled "${name}": ${tiled.tileCount.toLocaleString()} tiles, ` +
+            `zoom ${tiled.minZoom}–${tiled.maxZoom}, ` +
+            `${(tiled.bytes / 1048576).toFixed(1)} MB on disk, ` +
+            `${(tiled.ms / 1000).toFixed(1)} s`,
+        );
+        flash(
+          `${name}: tiled at full resolution · ${tiled.tileCount.toLocaleString()} tiles · ` +
+            `zoom ${tiled.minZoom}–${tiled.maxZoom} · ${(tiled.ms / 1000).toFixed(1)} s`,
+          8000,
+        );
         return;
       }
 
@@ -543,6 +550,16 @@ export function App(): JSX.Element {
       </div>
       {store.importStatus && <div className="import-status">{store.importStatus}</div>}
       <ImportDialog />
+      {rasterChoice && (
+        <RasterChoiceDialog
+          info={rasterChoice}
+          onChoose={(c) => {
+            setRasterChoice(null);
+            rasterChoiceResolve.current?.(c);
+            rasterChoiceResolve.current = null;
+          }}
+        />
+      )}
       {store.restyleIds && (
         <RestyleDialog
           key={store.restyleIds.join(',')}

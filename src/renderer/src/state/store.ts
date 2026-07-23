@@ -112,6 +112,13 @@ interface AppState {
     dataUrl: string;
     box: LatLonBox;
   }): string | null;
+  /** Add a large raster as a tiled GroundOverlay backed by a local pyramid. */
+  addTiledOverlay(o: {
+    name: string;
+    sourcePath: string;
+    box: LatLonBox;
+    marker: { hash: string; minZoom: number; maxZoom: number };
+  }): string | null;
 
   // dialogs
   openRestyle(ids: string[] | null): void;
@@ -402,6 +409,19 @@ export const useStore = create<AppState>((set, get) => {
       }
       const parentId = get().selection[0] ?? doc.root.id;
       const id = doc.addGroundOverlay(parentId, o);
+      set({ selection: [id], activeDocId: doc.id });
+      if (!newDoc) bumpScene();
+      return id;
+    },
+    addTiledOverlay(o) {
+      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      let newDoc = false;
+      if (!doc) {
+        doc = get().newDocument();
+        newDoc = true;
+      }
+      const parentId = get().selection[0] ?? doc.root.id;
+      const id = doc.addTiledOverlay(parentId, o);
       set({ selection: [id], activeDocId: doc.id });
       if (!newDoc) bumpScene();
       return id;

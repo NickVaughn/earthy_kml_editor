@@ -648,6 +648,36 @@ body,
   margin: 0 2px;
 }
 
+/* Raster import choice */
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.choice {
+  text-align: left;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.choice:hover {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.choice-title {
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.choice-body {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* GDAL job progress */
 .job-progress {
   position: absolute;

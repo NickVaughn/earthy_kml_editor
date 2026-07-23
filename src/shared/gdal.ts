@@ -63,6 +63,20 @@ export interface RasterPlan {
   warpedHeight: number;
 }
 
+/** An XYZ tile pyramid generated on disk for a large raster. */
+export interface TiledRaster {
+  path: string;
+  /** Cache key; tiles live under `<userData>/tiles/<hash>/{z}/{x}/{y}.png`. */
+  hash: string;
+  minZoom: number;
+  maxZoom: number;
+  /** [west, south, east, north] in degrees, for the overlay's LatLonBox. */
+  bounds: [number, number, number, number];
+  tileCount: number;
+  bytes: number;
+  ms: number;
+}
+
 /**
  * A raster warped to EPSG:4326 and encoded as PNG, ready to drape on the globe
  * as a single overlay (no tiling). Carries timings/sizes so the UI can report
@@ -99,7 +113,8 @@ export type GdalRequest =
   | { id: string; type: 'convertVector'; path: string; layerName: string }
   | { id: string; type: 'inspectRaster'; path: string }
   | { id: string; type: 'planRaster'; path: string }
-  | { id: string; type: 'convertRaster'; path: string; maxDimension?: number };
+  | { id: string; type: 'convertRaster'; path: string; maxDimension?: number }
+  | { id: string; type: 'tileRaster'; path: string; hash: string; cacheDir: string };
 
 /** Responses from the worker. */
 export type GdalResponse =

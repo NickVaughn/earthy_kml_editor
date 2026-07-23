@@ -1,6 +1,8 @@
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
+import { createHash } from 'node:crypto';
+import { stat as fsStat } from 'node:fs/promises';
 import type {
   GdalRequest,
   VectorInfo,
@@ -8,6 +10,7 @@ import type {
   ConvertedLayer,
   ConvertedRaster,
   RasterPlan,
+  TiledRaster,
   GdalProgress,
 } from '@shared/gdal';
 
@@ -85,6 +88,26 @@ export function convertRaster(
   maxDimension?: number,
 ): Promise<ConvertedRaster> {
   return request<ConvertedRaster>({ type: 'convertRaster', path, maxDimension });
+}
+
+/**
+ * Build (or reuse) an XYZ tile pyramid for a raster. Tiles are cached under the
+ * app's userData directory, keyed by a hash of the file's identity, so
+ * re-opening the same raster is instant.
+ */
+export async function tileRaster(path: string): Promise<TiledRaster> {
+  const stat = await fsStat(path);
+  const hash = createHash('sha1')
+    .update(`${path}:${stat.size}:${stat.mtimeMs}`)
+    .digest('hex')
+    .slice(0, 16);
+  const cacheDir = join(tilesRoot(), hash);
+  return request<TiledRaster>({ type: 'tileRaster', path, hash, cacheDir });
+}
+
+/** Root directory holding every raster's tile pyramid. */
+export function tilesRoot(): string {
+  return join(app.getPath('userData'), 'tiles');
 }
 
 /** Marker on the rejection a cancel produces, so callers can tell it apart. */

@@ -7,6 +7,7 @@ import {
   rmSync,
   readdirSync,
   statSync,
+  mkdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type {
@@ -18,6 +19,7 @@ import type {
   ConvertedLayer,
   ConvertedRaster,
   RasterPlan,
+  TiledRaster,
 } from '@shared/gdal';
 
 /**
@@ -577,6 +579,147 @@ async function convertRaster(
   }
 }
 
+// ---- XYZ tile pyramid -----------------------------------------------------
+
+/** Web Mercator half-extent in metres (EPSG:3857 world edge). */
+const MERC_R = 20037508.342789244;
+const TILE_PX = 256;
+
+/** Tile x/y range covering a Web Mercator extent at one zoom level. */
+function tileRange(
+  z: number,
+  ext: { minX: number; minY: number; maxX: number; maxY: number },
+): { x0: number; x1: number; y0: number; y1: number } {
+  const span = (2 * MERC_R) / 2 ** z;
+  const clamp = (v: number): number => Math.min(2 ** z - 1, Math.max(0, v));
+  return {
+    x0: clamp(Math.floor((ext.minX + MERC_R) / span)),
+    x1: clamp(Math.floor((ext.maxX + MERC_R) / span)),
+    y0: clamp(Math.floor((MERC_R - ext.maxY) / span)),
+    y1: clamp(Math.floor((MERC_R - ext.minY) / span)),
+  };
+}
+
+/**
+ * Build an XYZ/PNG tile pyramid for a raster too large to drape as one image.
+ * Warps once to EPSG:3857, then cuts 256px tiles per zoom level straight to
+ * disk, so memory stays flat no matter how big the source is.
+ */
+async function tileRaster(
+  id: string,
+  path: string,
+  hash: string,
+  cacheDir: string,
+): Promise<TiledRaster> {
+  const Gdal = await loadGdal();
+  progress(id, null, 'Reading raster…');
+  const { dataset: src, cleanup } = await openRaster(Gdal, id, path);
+  const started = Date.now();
+  try {
+    progress(id, null, 'Reprojecting to Web Mercator…');
+    const warped = await Gdal.gdalwarp(src, [
+      '-t_srs',
+      'EPSG:3857',
+      '-of',
+      'GTiff',
+      '-dstalpha',
+    ]);
+    const wds = (await Gdal.open(warped.real ?? warped)).datasets[0];
+    const info: any = await Gdal.gdalinfo(wds, ['-json']);
+    const [width] = info?.size ?? [0, 0];
+    const cc = info?.cornerCoordinates;
+    if (!cc?.upperLeft || !cc?.lowerRight) {
+      throw new Error('Reprojected raster has no usable extent.');
+    }
+    const ext = {
+      minX: cc.upperLeft[0],
+      maxY: cc.upperLeft[1],
+      maxX: cc.lowerRight[0],
+      minY: cc.lowerRight[1],
+    };
+    const bounds = boundsFromInfo(info);
+    if (!bounds) throw new Error('Reprojected raster has no usable georeferencing.');
+
+    // Deepest zoom whose tile resolution still resolves the native pixel size.
+    const resX = (ext.maxX - ext.minX) / Math.max(1, width);
+    const maxZoom = Math.max(
+      0,
+      Math.min(22, Math.round(Math.log2((2 * MERC_R) / TILE_PX / Math.max(resX, 1e-9)))),
+    );
+    // Shallowest zoom where the whole raster still fits in a couple of tiles.
+    let minZoom = 0;
+    for (let z = 0; z <= maxZoom; z++) {
+      const r = tileRange(z, ext);
+      minZoom = z;
+      if ((r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1) >= 2) break;
+    }
+
+    let total = 0;
+    for (let z = minZoom; z <= maxZoom; z++) {
+      const r = tileRange(z, ext);
+      total += (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1);
+    }
+
+    mkdirSync(cacheDir, { recursive: true });
+    let done = 0;
+    let bytes = 0;
+    for (let z = minZoom; z <= maxZoom; z++) {
+      const span = (2 * MERC_R) / 2 ** z;
+      const r = tileRange(z, ext);
+      for (let x = r.x0; x <= r.x1; x++) {
+        const dir = join(cacheDir, String(z), String(x));
+        mkdirSync(dir, { recursive: true });
+        for (let y = r.y0; y <= r.y1; y++) {
+          const west = -MERC_R + x * span;
+          const north = MERC_R - y * span;
+          // Reuse one output name so the WASM filesystem doesn't accumulate
+          // thousands of PNGs alongside the ones we've already written out.
+          const out = await Gdal.gdal_translate(
+            wds,
+            [
+              '-of',
+              'PNG',
+              '-outsize',
+              String(TILE_PX),
+              String(TILE_PX),
+              '-projwin',
+              String(west),
+              String(north),
+              String(west + span),
+              String(north - span),
+              '-projwin_srs',
+              'EPSG:3857',
+            ],
+            'tile',
+          );
+          const png = await Gdal.getFileBytes(out.real ?? out);
+          writeFileSync(join(dir, `${y}.png`), Buffer.from(png));
+          bytes += png.length;
+          done++;
+          if (done % 8 === 0 || done === total) {
+            progress(id, done / total, `Tiling ${done.toLocaleString()} / ${total.toLocaleString()}…`);
+          }
+        }
+      }
+    }
+
+    await Gdal.close(src).catch(() => undefined);
+    await Gdal.close(wds).catch(() => undefined);
+    return {
+      path,
+      hash,
+      minZoom,
+      maxZoom,
+      bounds,
+      tileCount: total,
+      bytes,
+      ms: Date.now() - started,
+    };
+  } finally {
+    cleanup();
+  }
+}
+
 parentPort?.on('message', async (req: GdalRequest) => {
   try {
     let result: unknown;
@@ -595,6 +738,9 @@ parentPort?.on('message', async (req: GdalRequest) => {
         break;
       case 'convertRaster':
         result = await convertRaster(req.id, req.path, req.maxDimension);
+        break;
+      case 'tileRaster':
+        result = await tileRaster(req.id, req.path, req.hash, req.cacheDir);
         break;
       default:
         throw new Error(`Unknown request type`);

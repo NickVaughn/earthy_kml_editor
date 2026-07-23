@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseKml } from '@renderer/model/parse';
 import { serializeKml } from '@renderer/model/serialize';
 import { KmlDocument } from '@renderer/model/document';
+import { tiledOverlayInfo, tileUrlTemplate } from '@renderer/model/overlays';
 import { fixture, generatePolygonKml } from './helpers';
 
 const FIXTURES = [
@@ -158,6 +159,29 @@ describe('ground overlays', () => {
     doc.undo();
     expect(doc.nodeById(id)).toBeUndefined();
     expect(doc.resources['overlays/scan.png']).toBeUndefined();
+  });
+
+  it('marks a tiled raster so it can be re-rendered from the tile cache', () => {
+    const doc = KmlDocument.empty();
+    const id = doc.addTiledOverlay(doc.root.id, {
+      name: 'Big scan',
+      sourcePath: '/data/big.tif',
+      box: { west: -123, south: 37.7, east: -122.7, north: 37.95 },
+      marker: { hash: 'abc123', minZoom: 11, maxZoom: 16 },
+    });
+    // No image is embedded — tiles live in the local cache, not the document.
+    expect(Object.keys(doc.resources)).toHaveLength(0);
+    expect(doc.nodeById(id)?.overlay?.href).toBe('/data/big.tif');
+
+    const reloaded = new KmlDocument(parseKml(serializeKml(doc.data)));
+    const overlay = [...reloaded.walk()].find((n) => n.type === 'GroundOverlay')!;
+    expect(tiledOverlayInfo(overlay)).toEqual({ hash: 'abc123', minZoom: 11, maxZoom: 16 });
+    expect(tileUrlTemplate('abc123')).toBe('earthy-tiles://abc123/{z}/{x}/{y}.png');
+
+    // A plain (non-tiled) overlay must not be mistaken for a tiled one.
+    const plain = KmlDocument.fromKml(fixture('overlay.kml'));
+    const scan = [...plain.walk()].find((n) => n.name === 'Scanned map')!;
+    expect(tiledOverlayInfo(scan)).toBeNull();
   });
 
   it('keeps ScreenOverlay/NetworkLink verbatim (only GroundOverlay is modelled)', () => {
