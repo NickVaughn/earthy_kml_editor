@@ -14,7 +14,6 @@ import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
-import { RasterPanel } from './RasterPanel';
 import { JobProgress } from './JobProgress';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
@@ -27,6 +26,16 @@ function flash(message: string, ms = 5000): void {
       useStore.getState().setImportStatus(null);
     }
   }, ms);
+}
+
+/** PNG bytes → data URL, chunked so a large image doesn't blow the call stack. */
+function bytesToDataUrl(bytes: Uint8Array, mime = 'image/png'): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
 }
 
 /** Temp-disk usage worth warning about before committing to a decode. */
@@ -178,6 +187,7 @@ export function App(): JSX.Element {
   // ---- open/close a document: rebuild + frame -----------------------------
   useEffect(() => {
     globeRef.current?.setDocuments(useStore.getState().docs);
+    void globeRef.current?.syncGroundOverlays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.docEpoch]);
 
@@ -185,12 +195,14 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (store.sceneEpoch === 0) return;
     globeRef.current?.rebuild();
+    void globeRef.current?.syncGroundOverlays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.sceneEpoch]);
 
   // ---- visibility-only updates (no rebuild) -------------------------------
   useEffect(() => {
     globeRef.current?.refreshVisibility();
+    void globeRef.current?.syncGroundOverlays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.visEpoch]);
 
@@ -296,25 +308,22 @@ export function App(): JSX.Element {
       );
       const ipcMs = performance.now() - t0 - conv.gdalMs;
 
-      st.setImportStatus(`Uploading ${conv.width.toLocaleString()}×${conv.height.toLocaleString()}…`);
-      const id = `raster-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-      const { uploadMs } = await globe.addRasterOverlay(id, conv.png, conv.bounds);
-
-      st.addRaster({
-        id,
+      st.setImportStatus(`Adding ${conv.width.toLocaleString()}×${conv.height.toLocaleString()} overlay…`);
+      const t1 = performance.now();
+      const href = `overlays/${name.replace(/\.[^.]+$/, '')}-${Date.now()}.png`;
+      const nodeId = st.addGroundOverlay({
         name,
-        path,
-        width: conv.width,
-        height: conv.height,
-        sourceWidth: conv.sourceWidth,
-        sourceHeight: conv.sourceHeight,
-        bounds: conv.bounds,
-        bytes: conv.png.byteLength,
-        gdalMs: conv.gdalMs,
-        uploadMs,
-        downsampled: conv.downsampled,
-        visible: true,
+        href,
+        dataUrl: bytesToDataUrl(conv.png),
+        box: {
+          west: conv.bounds[0],
+          south: conv.bounds[1],
+          east: conv.bounds[2],
+          north: conv.bounds[3],
+        },
       });
+      const uploadMs = performance.now() - t1;
+      void nodeId;
       globe.flyToBounds(conv.bounds);
 
       // Console line is the detailed record for the perf experiment.
@@ -368,6 +377,26 @@ export function App(): JSX.Element {
       path = chosen.path;
       asKmz = chosen.asKmz;
     }
+
+    // Overlay images live in the document's resources, which only a KMZ can
+    // carry. Saving as plain KML would leave the <GroundOverlay> pointing at a
+    // file that isn't there, so say so before writing.
+    if (!asKmz) {
+      const embedded = [...doc.walk()].filter(
+        (n) => n.type === 'GroundOverlay' && n.overlay?.href && doc.resources[n.overlay.href],
+      );
+      if (embedded.length) {
+        const ok = window.confirm(
+          `This file has ${embedded.length} image overlay${embedded.length === 1 ? '' : 's'} ` +
+            `whose imagery is stored inside the document.\n\n` +
+            `Plain KML can't carry images, so the overlay${embedded.length === 1 ? '' : 's'} ` +
+            `will reference a file that doesn't exist and won't render when reopened. ` +
+            `Save as KMZ instead to embed the imagery.\n\nSave as KML anyway?`,
+        );
+        if (!ok) return;
+      }
+    }
+
     const res = await window.api.saveFile({
       path,
       kml: doc.serialize(),
@@ -470,18 +499,6 @@ export function App(): JSX.Element {
             onOpenBalloon={(id) => useStore.getState().openBalloon(id)}
             onSave={(docId) => doSave(false, docId)}
             onSaveAs={(docId) => doSave(true, docId)}
-          />
-          <RasterPanel
-            onToggle={(id) => {
-              useStore.getState().toggleRasterVisible(id);
-              const r = useStore.getState().rasters.find((x) => x.id === id);
-              if (r) globeRef.current?.setRasterVisible(id, r.visible);
-            }}
-            onRemove={(id) => {
-              globeRef.current?.removeRasterOverlay(id);
-              useStore.getState().removeRaster(id);
-            }}
-            onZoom={(bounds) => globeRef.current?.flyToBounds(bounds)}
           />
         </div>
         <div className="globe-wrap">

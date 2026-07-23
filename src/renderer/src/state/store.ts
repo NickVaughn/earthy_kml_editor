@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { KmlDocument } from '@renderer/model/document';
 import type { StylePatch } from '@renderer/model/bulkStyle';
-import type { Geometry, KmlStyle } from '@renderer/model/types';
+import type { Geometry, KmlStyle, LatLonBox } from '@renderer/model/types';
 import { geojsonToFolder, type ImportOptions, type CategorySpec } from '@renderer/model/geojson';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
 import type { VectorInfo } from '@shared/gdal';
@@ -17,29 +17,6 @@ function defaultStyle(kind: Geometry['kind']): KmlStyle {
       poly: { color: '80ffffff', fill: true, outline: true },
     };
   return {};
-}
-
-/**
- * A raster draped on the globe as a single image (no tiling). Carries the
- * timings/sizes behind it so the UI can show where this approach breaks down.
- */
-export interface RasterOverlay {
-  id: string;
-  name: string;
-  path: string;
-  /** Pixel size actually uploaded. */
-  width: number;
-  height: number;
-  /** Pixel size of the source file. */
-  sourceWidth: number;
-  sourceHeight: number;
-  bounds: [number, number, number, number];
-  /** PNG payload size in bytes. */
-  bytes: number;
-  gdalMs: number;
-  uploadMs: number;
-  downsampled: boolean;
-  visible: boolean;
 }
 
 export type InteractionMode =
@@ -88,9 +65,6 @@ interface AppState {
   /** A request for the layer tree to begin inline-renaming this node. */
   renameRequestId: string | null;
 
-  /** Raster images draped on the globe as single overlays (no tiling). */
-  rasters: RasterOverlay[];
-
   settings: AppSettings;
   hasGoogleKey: boolean;
   cursorLon: number | null;
@@ -131,10 +105,13 @@ interface AppState {
   undo(): void;
   redo(): void;
 
-  // rasters
-  addRaster(r: RasterOverlay): void;
-  removeRaster(id: string): void;
-  toggleRasterVisible(id: string): void;
+  /** Add an imported raster as a GroundOverlay node; returns its node id. */
+  addGroundOverlay(o: {
+    name: string;
+    href: string;
+    dataUrl: string;
+    box: LatLonBox;
+  }): string | null;
 
   // dialogs
   openRestyle(ids: string[] | null): void;
@@ -202,7 +179,6 @@ export const useStore = create<AppState>((set, get) => {
     restyleIds: null,
     descEditId: null,
     renameRequestId: null,
-    rasters: [],
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -415,16 +391,20 @@ export const useStore = create<AppState>((set, get) => {
       if (n) bumpScene();
       return n;
     },
-    addRaster(r) {
-      set((s) => ({ rasters: [...s.rasters, r] }));
-    },
-    removeRaster(id) {
-      set((s) => ({ rasters: s.rasters.filter((r) => r.id !== id) }));
-    },
-    toggleRasterVisible(id) {
-      set((s) => ({
-        rasters: s.rasters.map((r) => (r.id === id ? { ...r, visible: !r.visible } : r)),
-      }));
+    addGroundOverlay(o) {
+      // Same targeting as a vector import: the selected doc, else the active
+      // one, else a fresh file.
+      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      let newDoc = false;
+      if (!doc) {
+        doc = get().newDocument();
+        newDoc = true;
+      }
+      const parentId = get().selection[0] ?? doc.root.id;
+      const id = doc.addGroundOverlay(parentId, o);
+      set({ selection: [id], activeDocId: doc.id });
+      if (!newDoc) bumpScene();
+      return id;
     },
     openRestyle(ids) {
       set({ restyleIds: ids });

@@ -41,6 +41,13 @@ export interface GlobeHandlers {
 
 const SELECT_COLOR = Color.fromCssColorString('#00e5ff');
 
+/** A GroundOverlay's <color> alpha byte controls its opacity (default opaque). */
+function overlayAlpha(node: KmlNode): number {
+  const color = node.overlay?.color;
+  if (!color || !/^[0-9a-f]{8}$/i.test(color)) return 1;
+  return parseInt(color.slice(0, 2), 16) / 255;
+}
+
 export class GlobeRenderer {
   readonly viewer: Viewer;
   private docs: KmlDocument[] = [];
@@ -52,8 +59,10 @@ export class GlobeRenderer {
   private activeTool: { dispose(): void } | null = null;
   private handlers: GlobeHandlers;
   private baseLayer: ImageryLayer | null = null;
-  /** Single-image raster overlays, by store id. */
-  private rasterLayers = new Map<string, { layer: ImageryLayer; url: string }>();
+  /** Imagery layers for GroundOverlay nodes, by node id. */
+  private overlayLayers = new Map<string, { layer: ImageryLayer; href: string }>();
+  /** Overlay ids whose image is currently decoding (guards concurrent syncs). */
+  private overlayPending = new Set<string>();
 
   constructor(container: HTMLElement, handlers: GlobeHandlers) {
     this.handlers = handlers;
@@ -147,50 +156,73 @@ export class GlobeRenderer {
     if (previous) this.viewer.imageryLayers.remove(previous, true);
   }
 
-  // ---- raster overlays (single-image, no tiling) ---------------------------
+  // ---- GroundOverlay imagery (single image per overlay, no tiling) ---------
+
+  /** Resolve an overlay's href to something Cesium can load, or null. */
+  private overlayImageUrl(doc: KmlDocument, href: string): string | null {
+    // KMZ/imported images live in the document's resources as data URLs.
+    const resource = doc.resources[href];
+    if (resource) return resource;
+    if (/^(https?:|data:|blob:)/i.test(href)) return href;
+    return null; // relative path next to a .kml on disk — not supported yet
+  }
 
   /**
-   * Drape a PNG (already warped to EPSG:4326) over `bounds` as ONE imagery
-   * layer. Returns how long the decode + texture upload took, so callers can
-   * report where single-overlay rendering starts to struggle.
+   * Reconcile imagery layers with the GroundOverlay nodes in the open
+   * documents: add layers for new overlays, drop them for removed ones, and
+   * track visibility. Creating a layer decodes the image, so existing ones are
+   * reused unless their href changed.
    */
-  async addRasterOverlay(
-    id: string,
-    png: Uint8Array,
-    bounds: [number, number, number, number],
-  ): Promise<{ uploadMs: number }> {
-    // Copy into a fresh ArrayBuffer: the IPC-transferred view may be a slice of
-    // a larger pooled buffer, which would blob the wrong bytes.
-    const copy = new Uint8Array(png.length);
-    copy.set(png);
-    const url = URL.createObjectURL(new Blob([copy], { type: 'image/png' }));
-    const t0 = performance.now();
-    try {
-      const provider = await SingleTileImageryProvider.fromUrl(url, {
-        rectangle: Rectangle.fromDegrees(bounds[0], bounds[1], bounds[2], bounds[3]),
-      });
-      const layer = this.viewer.imageryLayers.addImageryProvider(provider);
-      this.rasterLayers.set(id, { layer, url });
-      // Force the texture through the pipeline so the timing is meaningful.
-      this.viewer.scene.requestRender();
-      return { uploadMs: performance.now() - t0 };
-    } catch (err) {
-      URL.revokeObjectURL(url);
-      throw err;
+  async syncGroundOverlays(): Promise<void> {
+    const wanted = new Map<string, { node: KmlNode; doc: KmlDocument }>();
+    for (const doc of this.docs) {
+      for (const node of doc.walk()) {
+        if (node.type === 'GroundOverlay' && node.overlay?.href && node.overlay.box) {
+          wanted.set(node.id, { node, doc });
+        }
+      }
     }
-  }
 
-  removeRasterOverlay(id: string): void {
-    const entry = this.rasterLayers.get(id);
-    if (!entry) return;
-    this.viewer.imageryLayers.remove(entry.layer, true);
-    URL.revokeObjectURL(entry.url);
-    this.rasterLayers.delete(id);
-  }
+    for (const [id, entry] of [...this.overlayLayers]) {
+      const w = wanted.get(id);
+      if (!w || w.node.overlay?.href !== entry.href) {
+        this.viewer.imageryLayers.remove(entry.layer, true);
+        this.overlayLayers.delete(id);
+      }
+    }
 
-  setRasterVisible(id: string, visible: boolean): void {
-    const entry = this.rasterLayers.get(id);
-    if (entry) entry.layer.show = visible;
+    for (const [id, { node, doc }] of wanted) {
+      const existing = this.overlayLayers.get(id);
+      if (existing) {
+        existing.layer.show = doc.isEffectivelyVisible(node);
+        existing.layer.alpha = overlayAlpha(node);
+        continue;
+      }
+      if (this.overlayPending.has(id)) continue; // already being created
+      const url = this.overlayImageUrl(doc, node.overlay!.href!);
+      if (!url) {
+        console.warn(`[earthy] overlay "${node.name}": cannot resolve ${node.overlay!.href}`);
+        continue;
+      }
+      this.overlayPending.add(id);
+      try {
+        const b = node.overlay!.box!;
+        const provider = await SingleTileImageryProvider.fromUrl(url, {
+          rectangle: Rectangle.fromDegrees(b.west, b.south, b.east, b.north),
+        });
+        // The document may have changed while the image decoded.
+        if (!this.nodeById(id)) continue;
+        const layer = this.viewer.imageryLayers.addImageryProvider(provider);
+        layer.show = doc.isEffectivelyVisible(node);
+        layer.alpha = overlayAlpha(node);
+        this.overlayLayers.set(id, { layer, href: node.overlay!.href! });
+      } catch (err) {
+        console.error(`[earthy] overlay "${node.name}" failed to load:`, err);
+      } finally {
+        this.overlayPending.delete(id);
+      }
+    }
+    this.viewer.scene.requestRender();
   }
 
   /** Fly to a raster overlay's extent. */
@@ -257,9 +289,16 @@ export class GlobeRenderer {
 
   /** Fly to a node — a single feature, or the union of a folder/file's features. */
   flyTo(nodeId: string): void {
-    if (!this.scene) return;
     const node = this.nodeById(nodeId);
     if (!node) return;
+
+    // GroundOverlays aren't in the batched scene; frame their LatLonBox.
+    const box = node.type === 'GroundOverlay' ? node.overlay?.box : undefined;
+    if (box) {
+      this.flyToBounds([box.west, box.south, box.east, box.north]);
+      return;
+    }
+    if (!this.scene) return;
 
     // Gather this node's own bounds (placemark) plus every descendant's.
     const spheres: BoundingSphere[] = [];

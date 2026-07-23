@@ -128,6 +128,38 @@ describe('ground overlays', () => {
     expect(out.match(/Scanned map/g)?.length).toBe(1);
   });
 
+  it('adds an imported raster as an undoable overlay that round-trips', () => {
+    const doc = KmlDocument.empty();
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgo=';
+    const id = doc.addGroundOverlay(doc.root.id, {
+      name: 'Scan',
+      href: 'overlays/scan.png',
+      dataUrl,
+      box: { west: -123, south: 37.85, east: -122.88, north: 37.94 },
+    });
+
+    // The image is a document resource, which is what a KMZ save embeds.
+    expect(doc.resources['overlays/scan.png']).toBe(dataUrl);
+    expect(doc.nodeById(id)?.type).toBe('GroundOverlay');
+
+    // Survives save + reload.
+    const reloaded = new KmlDocument(parseKml(serializeKml(doc.data)));
+    const overlay = [...reloaded.walk()].find((n) => n.type === 'GroundOverlay')!;
+    expect(overlay.name).toBe('Scan');
+    expect(overlay.overlay?.href).toBe('overlays/scan.png');
+    expect(overlay.overlay?.box).toEqual({
+      west: -123,
+      south: 37.85,
+      east: -122.88,
+      north: 37.94,
+    });
+
+    // Undo removes the node *and* its image.
+    doc.undo();
+    expect(doc.nodeById(id)).toBeUndefined();
+    expect(doc.resources['overlays/scan.png']).toBeUndefined();
+  });
+
   it('keeps ScreenOverlay/NetworkLink verbatim (only GroundOverlay is modelled)', () => {
     const doc = KmlDocument.fromKml(fixture('overlay.kml'));
     const screen = [...doc.walk()].find((n) => n.type === 'ScreenOverlay')!;

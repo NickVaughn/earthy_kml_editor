@@ -10,6 +10,7 @@ import type {
   KmlStyle,
   Geometry,
   SharedStyleEntry,
+  LatLonBox,
 } from './types';
 import { CONTAINER_TYPES } from './types';
 
@@ -640,6 +641,52 @@ export class KmlDocument {
     };
     apply();
     this.pushExternalUndo('Import layer', revert, apply);
+  }
+
+  /**
+   * Add an imported raster as a GroundOverlay node, storing its image as a
+   * document resource (so a KMZ save embeds it). One undoable step.
+   */
+  addGroundOverlay(
+    parentId: string | null,
+    o: { name: string; href: string; dataUrl: string; box: LatLonBox },
+  ): string {
+    let parent = parentId ? this.nodeById(parentId) : this.data.root;
+    if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
+    const container = parent ?? this.data.root;
+
+    const node: KmlNode = {
+      id: nextId(),
+      type: 'GroundOverlay',
+      name: o.name,
+      visible: true,
+      children: [],
+      unknownChildren: [],
+      attrs: {},
+      overlay: { href: o.href, box: { ...o.box } },
+    };
+
+    const addResource = (): void => {
+      this.resources[o.href] = o.dataUrl;
+    };
+    const removeResource = (): void => {
+      delete this.resources[o.href];
+    };
+
+    addResource();
+    const att = this.attach(container.id, undefined, [node]);
+    this.pushExternalUndo(
+      'Add image overlay',
+      () => {
+        att.revert();
+        removeResource();
+      },
+      () => {
+        addResource();
+        att.apply();
+      },
+    );
+    return node.id;
   }
 
   /** Set a placemark's description (inspector). Undoable. */
