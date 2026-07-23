@@ -167,6 +167,11 @@ body,
 }
 
 /* Context menu */
+.ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
 .ctx-menu {
   position: fixed;
   z-index: 100;

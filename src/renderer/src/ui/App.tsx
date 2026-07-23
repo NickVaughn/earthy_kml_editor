@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
@@ -14,6 +14,7 @@ import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
+import { FeatureContextMenu } from './FeatureContextMenu';
 
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
@@ -28,6 +29,11 @@ const MODE_HINT: Record<string, string> = {
 export function App(): JSX.Element {
   const globeContainer = useRef<HTMLDivElement>(null);
   const globeRef = useRef<GlobeRenderer | null>(null);
+  const [featureMenu, setFeatureMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const store = useStore();
   useKeybindings(globeRef);
@@ -37,10 +43,20 @@ export function App(): JSX.Element {
     if (!globeContainer.current || globeRef.current) return;
     const globe = new GlobeRenderer(globeContainer.current, {
       onPick: (id) => {
+        setFeatureMenu(null);
         useStore.getState().setSelection(id ? [id] : []);
         useStore.getState().openBalloon(id);
       },
       onCoord: (lon, lat) => useStore.getState().setCursor(lon, lat),
+      onContextMenu: (id, x, y) => {
+        if (!id) {
+          setFeatureMenu(null);
+          return;
+        }
+        const s = useStore.getState();
+        if (!s.selection.includes(id)) s.setSelection([id]);
+        setFeatureMenu({ nodeId: id, x, y });
+      },
     });
     globeRef.current = globe;
     return () => {
@@ -303,6 +319,14 @@ export function App(): JSX.Element {
               html={balloonHtml}
               resources={balloonDoc?.resources ?? {}}
               onClose={() => useStore.getState().openBalloon(null)}
+            />
+          )}
+          {featureMenu && (
+            <FeatureContextMenu
+              nodeId={featureMenu.nodeId}
+              x={featureMenu.x}
+              y={featureMenu.y}
+              onClose={() => setFeatureMenu(null)}
             />
           )}
         </div>

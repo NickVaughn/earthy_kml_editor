@@ -14,6 +14,7 @@ import {
   BoundingSphere,
   HeadingPitchRange,
   Material,
+  KeyboardEventModifier,
   defined,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
@@ -30,6 +31,9 @@ import {
 export interface GlobeHandlers {
   onPick: (nodeId: string | null) => void;
   onCoord: (lon: number, lat: number) => void;
+  /** Right-click / option-click on a feature (nodeId null = empty globe).
+   * x/y are viewport (client) coordinates for positioning a menu. */
+  onContextMenu: (nodeId: string | null, x: number, y: number) => void;
 }
 
 const SELECT_COLOR = Color.fromCssColorString('#00e5ff');
@@ -43,8 +47,10 @@ export class GlobeRenderer {
   private selLines = new PolylineCollection();
   private selPoints = new PointPrimitiveCollection();
   private activeTool: { dispose(): void } | null = null;
+  private handlers: GlobeHandlers;
 
   constructor(container: HTMLElement, handlers: GlobeHandlers) {
+    this.handlers = handlers;
     this.viewer = new Viewer(container, {
       // Lean: turn off every non-essential widget (PLAN §9).
       timeline: false,
@@ -97,7 +103,34 @@ export class GlobeRenderer {
         handlers.onPick(null);
       }
     }, ScreenSpaceEventType.LEFT_CLICK);
+
+    // Option-click (Alt + left-click) opens the same feature context menu as a
+    // right-click — a convenient alternative on trackpads.
+    this.handler.setInputAction((click: ScreenSpaceEventHandler.PositionedEvent) => {
+      if (this.activeTool) return;
+      this.emitContextMenu(click.position);
+    }, ScreenSpaceEventType.LEFT_CLICK, KeyboardEventModifier.ALT);
+
+    // Right-click: pick the feature and surface a context menu. Handled on the
+    // DOM so we can suppress the browser's own menu and read client coords.
+    this.viewer.scene.canvas.addEventListener('contextmenu', this.onCanvasContextMenu);
   }
+
+  /** Pick the feature at a canvas-space position and emit the context menu. */
+  private emitContextMenu(canvasPos: Cartesian2): void {
+    const picked = this.viewer.scene.pick(canvasPos);
+    const id =
+      defined(picked) && picked.id && typeof picked.id === 'string' ? picked.id : null;
+    const rect = this.viewer.scene.canvas.getBoundingClientRect();
+    this.handlers.onContextMenu(id, rect.left + canvasPos.x, rect.top + canvasPos.y);
+  }
+
+  private onCanvasContextMenu = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    if (this.activeTool) return; // draw/edit tool owns the canvas
+    const rect = this.viewer.scene.canvas.getBoundingClientRect();
+    this.emitContextMenu(new Cartesian2(ev.clientX - rect.left, ev.clientY - rect.top));
+  };
 
   async setBasemap(providerPromise: Promise<ImageryProvider>): Promise<void> {
     const provider = await providerPromise;
@@ -324,6 +357,7 @@ export class GlobeRenderer {
   }
 
   destroy(): void {
+    this.viewer.scene.canvas.removeEventListener('contextmenu', this.onCanvasContextMenu);
     this.handler.destroy();
     this.scene?.dispose();
     if (!this.viewer.isDestroyed()) this.viewer.destroy();
