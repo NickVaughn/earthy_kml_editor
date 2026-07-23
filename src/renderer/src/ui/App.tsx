@@ -13,6 +13,7 @@ import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
 import { FeatureContextMenu } from './FeatureContextMenu';
+import { RasterPanel } from './RasterPanel';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
 
@@ -186,6 +187,74 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.interactionMode]);
 
+  // ---- raster overlays (single image, no tiling) --------------------------
+  const loadRaster = useCallback(async (path: string) => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    const name = path.split('/').pop() ?? path;
+    const st = useStore.getState();
+    try {
+      st.setImportStatus(`Inspecting ${name}…`);
+      const info = await window.api.inspectRaster(path);
+      if (!info.bounds) {
+        st.setImportStatus(null);
+        alert(`${name} has no georeferencing Earthy can read, so it can't be placed.`);
+        return;
+      }
+
+      // One overlay is one GPU texture, so the GPU's max dimension is a hard
+      // ceiling. Downsample to fit rather than failing the upload outright.
+      const maxTex = globe.maxTextureSize() || 8192;
+      st.setImportStatus(
+        `Warping ${name} (${info.width.toLocaleString()}×${info.height.toLocaleString()})…`,
+      );
+      const t0 = performance.now();
+      const conv = await window.api.convertRaster(path, maxTex);
+      const ipcMs = performance.now() - t0 - conv.gdalMs;
+
+      st.setImportStatus(`Uploading ${conv.width.toLocaleString()}×${conv.height.toLocaleString()}…`);
+      const id = `raster-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const { uploadMs } = await globe.addRasterOverlay(id, conv.png, conv.bounds);
+
+      st.addRaster({
+        id,
+        name,
+        path,
+        width: conv.width,
+        height: conv.height,
+        sourceWidth: conv.sourceWidth,
+        sourceHeight: conv.sourceHeight,
+        bounds: conv.bounds,
+        bytes: conv.png.byteLength,
+        gdalMs: conv.gdalMs,
+        uploadMs,
+        downsampled: conv.downsampled,
+        visible: true,
+      });
+      globe.flyToBounds(conv.bounds);
+
+      // Console line is the detailed record for the perf experiment.
+      console.info(
+        `[earthy] raster "${name}": source ${info.width}×${info.height}, ` +
+          `drawn ${conv.width}×${conv.height} (${((conv.width * conv.height) / 1e6).toFixed(1)} MP), ` +
+          `png ${(conv.png.byteLength / 1048576).toFixed(1)} MB, ` +
+          `~${((conv.width * conv.height * 4) / 1048576).toFixed(1)} MB vram, ` +
+          `gdal ${Math.round(conv.gdalMs)} ms, ipc ${Math.round(ipcMs)} ms, ` +
+          `upload ${Math.round(uploadMs)} ms` +
+          (conv.downsampled ? ` (downsampled to fit MAX_TEXTURE_SIZE ${maxTex})` : ''),
+      );
+      flash(
+        `${name}: ${conv.width.toLocaleString()}×${conv.height.toLocaleString()} · ` +
+          `warp ${Math.round(conv.gdalMs)} ms · upload ${Math.round(uploadMs)} ms` +
+          (conv.downsampled ? ' · downsampled to fit GPU limit' : ''),
+        8000,
+      );
+    } catch (err) {
+      st.setImportStatus(null);
+      alert(`Could not load ${name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
   // ---- file operations -----------------------------------------------------
   // Opening adds a document to the workspace (multi-doc), so no discard guard.
   const doOpen = useCallback(async () => {
@@ -252,14 +321,11 @@ export function App(): JSX.Element {
               err instanceof Error ? err.message : String(err)
             }`);
           }
+        } else if (isRasterPath(p)) {
+          await loadRaster(p);
         } else {
           // Don't swallow the drop silently — say why nothing happened.
-          const name = p.split('/').pop();
-          flash(
-            isRasterPath(p)
-              ? `Raster import isn’t supported yet — ${name} was not opened.`
-              : `Unsupported file type: ${name}`,
-          );
+          flash(`Unsupported file type: ${p.split('/').pop()}`);
         }
       }
     });
@@ -285,7 +351,7 @@ export function App(): JSX.Element {
       offDrop();
       offChanged();
     };
-  }, [doOpen, doSave, openPath]);
+  }, [doOpen, doSave, openPath, loadRaster]);
 
   const onChangeBasemap = useCallback(
     async (id: string) => {
@@ -311,6 +377,18 @@ export function App(): JSX.Element {
             onOpenBalloon={(id) => useStore.getState().openBalloon(id)}
             onSave={(docId) => doSave(false, docId)}
             onSaveAs={(docId) => doSave(true, docId)}
+          />
+          <RasterPanel
+            onToggle={(id) => {
+              useStore.getState().toggleRasterVisible(id);
+              const r = useStore.getState().rasters.find((x) => x.id === id);
+              if (r) globeRef.current?.setRasterVisible(id, r.visible);
+            }}
+            onRemove={(id) => {
+              globeRef.current?.removeRasterOverlay(id);
+              useStore.getState().removeRaster(id);
+            }}
+            onZoom={(bounds) => globeRef.current?.flyToBounds(bounds)}
           />
         </div>
         <div className="globe-wrap">

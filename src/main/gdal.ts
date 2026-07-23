@@ -6,6 +6,7 @@ import type {
   VectorInfo,
   RasterInfo,
   ConvertedLayer,
+  ConvertedRaster,
   GdalProgress,
 } from '@shared/gdal';
 
@@ -72,6 +73,13 @@ export function convertVector(path: string, layerName: string): Promise<Converte
 
 export function inspectRaster(path: string): Promise<RasterInfo> {
   return request<RasterInfo>({ type: 'inspectRaster', path });
+}
+
+export function convertRaster(
+  path: string,
+  maxDimension?: number,
+): Promise<ConvertedRaster> {
+  return request<ConvertedRaster>({ type: 'convertRaster', path, maxDimension });
 }
 
 export function shutdownGdal(): void {

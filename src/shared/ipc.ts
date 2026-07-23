@@ -71,6 +71,10 @@ export interface Api {
   inspectVector(path: string): Promise<import('./gdal').VectorInfo>;
   convertVector(path: string, layerName: string): Promise<import('./gdal').ConvertedLayer>;
   inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
+  convertRaster(
+    path: string,
+    maxDimension?: number,
+  ): Promise<import('./gdal').ConvertedRaster>;
   onGdalProgress(cb: (p: import('./gdal').GdalProgress) => void): () => void;
   /** Fires when the currently open file is modified on disk by another program. */
   onFileChanged(cb: (path: string) => void): () => void;

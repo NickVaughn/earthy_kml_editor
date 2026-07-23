@@ -40,6 +40,29 @@ export interface ConvertedLayer {
   geojson: string;
 }
 
+/**
+ * A raster warped to EPSG:4326 and encoded as PNG, ready to drape on the globe
+ * as a single overlay (no tiling). Carries timings/sizes so the UI can report
+ * where single-overlay rendering starts to hurt.
+ */
+export interface ConvertedRaster {
+  path: string;
+  /** PNG bytes of the warped image. */
+  png: Uint8Array;
+  /** Pixel size of the emitted PNG (after any downsampling). */
+  width: number;
+  height: number;
+  /** Pixel size of the source raster. */
+  sourceWidth: number;
+  sourceHeight: number;
+  /** [west, south, east, north] in degrees. */
+  bounds: [number, number, number, number];
+  /** Milliseconds spent inside GDAL (warp + encode). */
+  gdalMs: number;
+  /** True when the image was scaled down to honour maxDimension. */
+  downsampled: boolean;
+}
+
 export interface GdalProgress {
   jobId: string;
   /** 0..1 when known, else null for indeterminate. */
@@ -51,7 +74,8 @@ export interface GdalProgress {
 export type GdalRequest =
   | { id: string; type: 'inspectVector'; path: string }
   | { id: string; type: 'convertVector'; path: string; layerName: string }
-  | { id: string; type: 'inspectRaster'; path: string };
+  | { id: string; type: 'inspectRaster'; path: string }
+  | { id: string; type: 'convertRaster'; path: string; maxDimension?: number };
 
 /** Responses from the worker. */
 export type GdalResponse =

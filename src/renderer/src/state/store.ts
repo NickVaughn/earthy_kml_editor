@@ -19,6 +19,29 @@ function defaultStyle(kind: Geometry['kind']): KmlStyle {
   return {};
 }
 
+/**
+ * A raster draped on the globe as a single image (no tiling). Carries the
+ * timings/sizes behind it so the UI can show where this approach breaks down.
+ */
+export interface RasterOverlay {
+  id: string;
+  name: string;
+  path: string;
+  /** Pixel size actually uploaded. */
+  width: number;
+  height: number;
+  /** Pixel size of the source file. */
+  sourceWidth: number;
+  sourceHeight: number;
+  bounds: [number, number, number, number];
+  /** PNG payload size in bytes. */
+  bytes: number;
+  gdalMs: number;
+  uploadMs: number;
+  downsampled: boolean;
+  visible: boolean;
+}
+
 export type InteractionMode =
   | 'none'
   | 'draw-point'
@@ -63,6 +86,9 @@ interface AppState {
   /** A request for the layer tree to begin inline-renaming this node. */
   renameRequestId: string | null;
 
+  /** Raster images draped on the globe as single overlays (no tiling). */
+  rasters: RasterOverlay[];
+
   settings: AppSettings;
   hasGoogleKey: boolean;
   cursorLon: number | null;
@@ -102,6 +128,11 @@ interface AppState {
   restyleByField(ids: string[], field: string, specs: CategorySpec[], lineWidth?: number): number;
   undo(): void;
   redo(): void;
+
+  // rasters
+  addRaster(r: RasterOverlay): void;
+  removeRaster(id: string): void;
+  toggleRasterVisible(id: string): void;
 
   // dialogs
   openRestyle(ids: string[] | null): void;
@@ -167,6 +198,7 @@ export const useStore = create<AppState>((set, get) => {
     restyleIds: null,
     descEditId: null,
     renameRequestId: null,
+    rasters: [],
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
     cursorLon: null,
@@ -378,6 +410,17 @@ export const useStore = create<AppState>((set, get) => {
       for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth);
       if (n) bumpScene();
       return n;
+    },
+    addRaster(r) {
+      set((s) => ({ rasters: [...s.rasters, r] }));
+    },
+    removeRaster(id) {
+      set((s) => ({ rasters: s.rasters.filter((r) => r.id !== id) }));
+    },
+    toggleRasterVisible(id) {
+      set((s) => ({
+        rasters: s.rasters.map((r) => (r.id === id ? { ...r, visible: !r.visible } : r)),
+      }));
     },
     openRestyle(ids) {
       set({ restyleIds: ids });

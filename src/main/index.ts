@@ -14,7 +14,13 @@ import {
   getRecentFiles,
   pushRecentFile,
 } from './settings';
-import { inspectVector, convertVector, inspectRaster, shutdownGdal } from './gdal';
+import {
+  inspectVector,
+  convertVector,
+  inspectRaster,
+  convertRaster,
+  shutdownGdal,
+} from './gdal';
 import type { SaveRequest, GoogleMapType } from '@shared/ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -223,6 +229,9 @@ function registerIpc(): void {
     convertVector(path, layerName),
   );
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
+  ipcMain.handle('gdal-convert-raster', (_e, path: string, maxDimension?: number) =>
+    convertRaster(path, maxDimension),
+  );
 
   ipcMain.handle('save-file-dialog', async (_e, defaultName: string) => {
     const res = await dialog.showSaveDialog(mainWindow!, {

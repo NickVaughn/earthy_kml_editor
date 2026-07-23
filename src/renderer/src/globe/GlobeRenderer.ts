@@ -15,6 +15,9 @@ import {
   HeadingPitchRange,
   Material,
   KeyboardEventModifier,
+  ImageryLayer,
+  SingleTileImageryProvider,
+  Rectangle,
   defined,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
@@ -48,6 +51,9 @@ export class GlobeRenderer {
   private selPoints = new PointPrimitiveCollection();
   private activeTool: { dispose(): void } | null = null;
   private handlers: GlobeHandlers;
+  private baseLayer: ImageryLayer | null = null;
+  /** Single-image raster overlays, by store id. */
+  private rasterLayers = new Map<string, { layer: ImageryLayer; url: string }>();
 
   constructor(container: HTMLElement, handlers: GlobeHandlers) {
     this.handlers = handlers;
@@ -134,8 +140,71 @@ export class GlobeRenderer {
 
   async setBasemap(providerPromise: Promise<ImageryProvider>): Promise<void> {
     const provider = await providerPromise;
-    this.viewer.imageryLayers.removeAll();
-    this.viewer.imageryLayers.addImageryProvider(provider);
+    // Replace only the base layer — removeAll() would also drop raster overlays.
+    const previous = this.baseLayer;
+    this.baseLayer = this.viewer.imageryLayers.addImageryProvider(provider);
+    this.viewer.imageryLayers.lowerToBottom(this.baseLayer);
+    if (previous) this.viewer.imageryLayers.remove(previous, true);
+  }
+
+  // ---- raster overlays (single-image, no tiling) ---------------------------
+
+  /**
+   * Drape a PNG (already warped to EPSG:4326) over `bounds` as ONE imagery
+   * layer. Returns how long the decode + texture upload took, so callers can
+   * report where single-overlay rendering starts to struggle.
+   */
+  async addRasterOverlay(
+    id: string,
+    png: Uint8Array,
+    bounds: [number, number, number, number],
+  ): Promise<{ uploadMs: number }> {
+    // Copy into a fresh ArrayBuffer: the IPC-transferred view may be a slice of
+    // a larger pooled buffer, which would blob the wrong bytes.
+    const copy = new Uint8Array(png.length);
+    copy.set(png);
+    const url = URL.createObjectURL(new Blob([copy], { type: 'image/png' }));
+    const t0 = performance.now();
+    try {
+      const provider = await SingleTileImageryProvider.fromUrl(url, {
+        rectangle: Rectangle.fromDegrees(bounds[0], bounds[1], bounds[2], bounds[3]),
+      });
+      const layer = this.viewer.imageryLayers.addImageryProvider(provider);
+      this.rasterLayers.set(id, { layer, url });
+      // Force the texture through the pipeline so the timing is meaningful.
+      this.viewer.scene.requestRender();
+      return { uploadMs: performance.now() - t0 };
+    } catch (err) {
+      URL.revokeObjectURL(url);
+      throw err;
+    }
+  }
+
+  removeRasterOverlay(id: string): void {
+    const entry = this.rasterLayers.get(id);
+    if (!entry) return;
+    this.viewer.imageryLayers.remove(entry.layer, true);
+    URL.revokeObjectURL(entry.url);
+    this.rasterLayers.delete(id);
+  }
+
+  setRasterVisible(id: string, visible: boolean): void {
+    const entry = this.rasterLayers.get(id);
+    if (entry) entry.layer.show = visible;
+  }
+
+  /** Fly to a raster overlay's extent. */
+  flyToBounds(bounds: [number, number, number, number]): void {
+    this.viewer.camera.flyTo({
+      destination: Rectangle.fromDegrees(bounds[0], bounds[1], bounds[2], bounds[3]),
+      duration: 0.6,
+    });
+  }
+
+  /** The GPU's maximum texture dimension — the hard ceiling for one overlay. */
+  maxTextureSize(): number {
+    const gl = this.viewer.scene.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    return gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : 0;
   }
 
   private nodeById(id: string): KmlNode | undefined {

@@ -7,6 +7,7 @@ import type {
   FieldInfo,
   RasterInfo,
   ConvertedLayer,
+  ConvertedRaster,
 } from '@shared/gdal';
 
 /**
@@ -143,37 +144,125 @@ async function convertVector(
   return { layerName, geojson };
 }
 
+/** WGS84 [west, south, east, north] from a gdalinfo -json payload, if derivable. */
+function boundsFromInfo(info: any): [number, number, number, number] | null {
+  const wgs = info?.wgs84Extent?.coordinates?.[0];
+  if (Array.isArray(wgs) && wgs.length >= 4) {
+    const lons = wgs.map((p: number[]) => p[0]);
+    const lats = wgs.map((p: number[]) => p[1]);
+    return [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)];
+  }
+  const cc = info?.cornerCoordinates;
+  if (cc?.lowerLeft && cc?.upperRight) {
+    return [cc.lowerLeft[0], cc.lowerLeft[1], cc.upperRight[0], cc.upperRight[1]];
+  }
+  return null;
+}
+
 async function inspectRaster(id: string, path: string): Promise<RasterInfo> {
   const Gdal = await loadGdal();
   progress(id, null, 'Reading raster…');
   const opened = await Gdal.open(path);
   const dataset = opened.datasets[0];
-  const info: any = await Gdal.getInfo(dataset);
-  const width = info?.size?.[0] ?? info?.width ?? 0;
-  const height = info?.size?.[1] ?? info?.height ?? 0;
-  const bands = (info?.bands?.length ?? info?.bandCount ?? 0) as number;
-
-  // Corner coordinates, when GDAL reports them in WGS84.
-  let bounds: [number, number, number, number] | null = null;
-  const cc = info?.cornerCoordinates;
-  const wgs = info?.wgs84Extent?.coordinates?.[0];
-  if (Array.isArray(wgs) && wgs.length >= 4) {
-    const lons = wgs.map((p: number[]) => p[0]);
-    const lats = wgs.map((p: number[]) => p[1]);
-    bounds = [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)];
-  } else if (cc?.lowerLeft && cc?.upperRight) {
-    bounds = [cc.lowerLeft[0], cc.lowerLeft[1], cc.upperRight[0], cc.upperRight[1]];
-  }
+  // Note: getInfo() returns only {width,height,bandCount,…} — the corner and
+  // WGS84 extent fields live in gdalinfo's -json payload, so use that.
+  const info: any = await Gdal.gdalinfo(dataset, ['-json']);
+  const width = info?.size?.[0] ?? 0;
+  const height = info?.size?.[1] ?? 0;
+  const bands = (info?.bands?.length ?? 0) as number;
 
   await Gdal.close(dataset).catch(() => undefined);
   return {
     path,
-    driver: info?.driverShortName ?? info?.driverName ?? 'unknown',
+    driver: info?.driverShortName ?? 'unknown',
     width,
     height,
     bands,
-    bounds,
+    bounds: boundsFromInfo(info),
     needsTiling: width * height > 8192 * 8192,
+  };
+}
+
+/**
+ * Warp a raster to EPSG:4326 and encode it as a PNG for use as ONE Cesium
+ * overlay (no tile pyramid). Deliberately unbounded by default so we can find
+ * out empirically how large a single overlay can go before it hurts.
+ */
+async function convertRaster(
+  id: string,
+  path: string,
+  maxDimension?: number,
+): Promise<ConvertedRaster> {
+  const Gdal = await loadGdal();
+  progress(id, null, 'Reading raster…');
+  const opened = await Gdal.open(path);
+  const src = opened.datasets[0];
+  const srcInfo: any = await Gdal.gdalinfo(src, ['-json']);
+  const sourceWidth = srcInfo?.size?.[0] ?? 0;
+  const sourceHeight = srcInfo?.size?.[1] ?? 0;
+
+  const t0 = Date.now();
+  progress(id, null, 'Reprojecting to EPSG:4326…');
+  // -dstalpha keeps the area outside the (possibly rotated) footprint transparent.
+  const warped = await Gdal.gdalwarp(src, [
+    '-t_srs',
+    'EPSG:4326',
+    '-of',
+    'GTiff',
+    '-dstalpha',
+  ]);
+  const wOpened = await Gdal.open(warped.real ?? warped);
+  const wds = wOpened.datasets[0];
+  const wInfo: any = await Gdal.gdalinfo(wds, ['-json']);
+
+  let width = wInfo?.size?.[0] ?? 0;
+  let height = wInfo?.size?.[1] ?? 0;
+  const bounds = boundsFromInfo(wInfo);
+  if (!bounds) throw new Error('Raster has no usable georeferencing.');
+
+  const args: string[] = ['-of', 'PNG'];
+
+  // PNG takes at most 4 bands; keep the first three plus the alpha we just added.
+  const bandTypes: string[] = (wInfo?.bands ?? []).map((b: any) => b.colorInterpretation === 'Alpha' ? 'Alpha' : b.type);
+  const bandCount = (wInfo?.bands ?? []).length;
+  if (bandCount > 4) {
+    args.push('-b', '1', '-b', '2', '-b', '3', '-b', String(bandCount));
+  }
+
+  // PNG only stores Byte/UInt16 — rescale anything else into 8-bit.
+  const nonByte = (wInfo?.bands ?? []).some(
+    (b: any) => b.type !== 'Byte' && b.colorInterpretation !== 'Alpha',
+  );
+  if (nonByte) args.push('-ot', 'Byte', '-scale');
+  void bandTypes;
+
+  let downsampled = false;
+  if (maxDimension && Math.max(width, height) > maxDimension) {
+    const scale = maxDimension / Math.max(width, height);
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+    args.push('-outsize', String(width), String(height));
+    downsampled = true;
+  }
+
+  progress(id, null, `Encoding ${width}×${height} PNG…`);
+  const out = await Gdal.gdal_translate(wds, args);
+  const png = await Gdal.getFileBytes(out.real ?? out);
+  const gdalMs = Date.now() - t0;
+
+  await Gdal.close(src).catch(() => undefined);
+  await Gdal.close(wds).catch(() => undefined);
+
+  return {
+    path,
+    png,
+    width,
+    height,
+    sourceWidth,
+    sourceHeight,
+    bounds,
+    gdalMs,
+    downsampled,
   };
 }
 
@@ -189,6 +278,9 @@ parentPort?.on('message', async (req: GdalRequest) => {
         break;
       case 'inspectRaster':
         result = await inspectRaster(req.id, req.path);
+        break;
+      case 'convertRaster':
+        result = await convertRaster(req.id, req.path, req.maxDimension);
         break;
       default:
         throw new Error(`Unknown request type`);
