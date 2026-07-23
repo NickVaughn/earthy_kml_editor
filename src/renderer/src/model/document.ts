@@ -3,6 +3,7 @@ import { serializeKml } from './serialize';
 import { effectiveStyle } from './style';
 import { nextId } from './ids';
 import { applyBulkStyle, type StylePatch } from './bulkStyle';
+import { buildStyle, placemarkFieldValue, type CategorySpec } from './geojson';
 import type {
   KmlDocumentData,
   KmlNode,
@@ -691,6 +692,106 @@ export class KmlDocument {
       }
     }
     return out;
+  }
+
+  /** Placemarks (with geometry) under a set of nodes, de-duplicated. */
+  private targetPlacemarks(ids: string[]): KmlNode[] {
+    const out: KmlNode[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const node = this.nodeById(id);
+      if (!node) continue;
+      for (const p of this.placemarksUnder(node)) {
+        if (!seen.has(p.id)) {
+          seen.add(p.id);
+          out.push(p);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Distinct ExtendedData field names across the placemarks under `ids`. */
+  attributeFieldNames(ids: string[]): string[] {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const n of this.targetPlacemarks(ids)) {
+      for (const f of n.extendedData?.fields ?? []) {
+        if (!seen.has(f.name)) {
+          seen.add(f.name);
+          names.push(f.name);
+        }
+      }
+    }
+    return names;
+  }
+
+  /** Distinct values of a field across the placemarks under `ids` (first-seen). */
+  distinctFieldValues(ids: string[], field: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const n of this.targetPlacemarks(ids)) {
+      const v = placemarkFieldValue(n, field);
+      if (!seen.has(v)) {
+        seen.add(v);
+        out.push(v);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Recolour the placemarks under `ids` by a field value: one shared style per
+   * category spec, re-pointing each placemark's styleUrl. Like the categorized
+   * import, but applied to existing features. One undoable step.
+   */
+  restyleByField(
+    ids: string[],
+    field: string,
+    specs: CategorySpec[],
+    lineWidth?: number,
+  ): number {
+    const targets = this.targetPlacemarks(ids);
+    if (targets.length === 0 || specs.length === 0) return 0;
+
+    const valueToId = new Map<string, string>();
+    const styles: KmlStyle[] = specs.map((spec) => {
+      const id = `nge-cat-${nextId()}`;
+      valueToId.set(spec.value, id);
+      return buildStyle(id, spec.color, {
+        fillMode: spec.fillMode,
+        fillOpacity: spec.fillOpacity,
+        lineOpacity: spec.lineOpacity,
+        lineWidth,
+      });
+    });
+    const reg = this.styleRegistrar(styles);
+    const snap = targets.map((n) => ({
+      node: n,
+      url: n.styleUrl,
+      inline: n.inlineStyle ? structuredClone(n.inlineStyle) : undefined,
+    }));
+
+    const apply = (): void => {
+      reg.add();
+      for (const n of targets) {
+        const id = valueToId.get(placemarkFieldValue(n, field));
+        if (id) {
+          n.styleUrl = `#${id}`;
+          n.inlineStyle = undefined; // let the shared category style win
+        }
+      }
+    };
+    const revert = (): void => {
+      reg.remove();
+      for (const s of snap) {
+        s.node.styleUrl = s.url;
+        s.node.inlineStyle = s.inline;
+      }
+    };
+    apply();
+    this.pushExternalUndo('Restyle by field', revert, apply);
+    return targets.filter((n) => valueToId.has(placemarkFieldValue(n, field))).length;
   }
 
   applyStyle(selectionIds: string[], patch: StylePatch): { patched: number; created: number } {

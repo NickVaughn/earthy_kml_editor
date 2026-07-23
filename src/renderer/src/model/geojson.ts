@@ -1,6 +1,19 @@
 import { nextId } from './ids';
 import type { KmlNode, KmlStyle, Geometry, Position } from './types';
 
+/** Sentinel "field" that means a placemark's <name> (for grouping/restyling). */
+export const NAME_FIELD = '$name';
+
+/**
+ * A placemark's value for a group/restyle field: its <name> for {@link NAME_FIELD},
+ * otherwise the matching ExtendedData field (empty string when absent).
+ */
+export function placemarkFieldValue(node: KmlNode, field: string): string {
+  if (field === NAME_FIELD) return node.name ?? '';
+  const f = node.extendedData?.fields?.find((x) => x.name === field);
+  return f ? f.value : '';
+}
+
 /**
  * Convert a GeoJSON FeatureCollection (already reprojected to EPSG:4326 by
  * GDAL) into a KML folder of placemarks, with attribute-driven naming,
@@ -172,7 +185,7 @@ interface StyleParams {
 }
 
 /** Build a shared style for one colour, honouring fill mode and opacities. */
-function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
+export function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
   const mode: FillMode = p.fillMode ?? 'both';
   const showFill = mode === 'fill' || mode === 'both';
   const showOutline = mode === 'outline' || mode === 'both';

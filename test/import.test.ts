@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { geojsonToFolder, geojsonGeometry, categoryColor } from '@renderer/model/geojson';
+import {
+  geojsonToFolder,
+  geojsonGeometry,
+  categoryColor,
+  defaultCategories,
+} from '@renderer/model/geojson';
 import { KmlDocument } from '@renderer/model/document';
 import { serializeKml } from '@renderer/model/serialize';
 import { parseKml } from '@renderer/model/parse';
@@ -350,6 +355,36 @@ describe('vector import', () => {
     doc.undo();
     expect(doc.root.name).toBe('Untitled');
     expect(doc.root.children.length).toBe(0);
+    expect(serializeKml(doc.data)).not.toContain('nge-cat-');
+  });
+
+  it('restyles existing features by a field value, undoably', () => {
+    const res = geojsonToFolder(PARCELS, { layerName: 'P', styleMode: 'single' });
+    const doc = KmlDocument.empty();
+    doc.importAsRoot(res.folder, res.styles);
+
+    // Field discovery from the imported ExtendedData.
+    expect(doc.attributeFieldNames([doc.root.id])).toContain('ZONE');
+    const values = doc.distinctFieldValues([doc.root.id], 'ZONE');
+    expect(values.sort()).toEqual(['C2', 'R1']);
+
+    const before = doc.placemarksUnder().map((p) => p.styleUrl);
+    expect(new Set(before).size).toBe(1); // single import style shared by all
+
+    const specs = defaultCategories(values, { ramp: 'category' });
+    const n = doc.restyleByField([doc.root.id], 'ZONE', specs, 3);
+    expect(n).toBe(2);
+
+    const after = doc.placemarksUnder();
+    expect(new Set(after.map((p) => p.styleUrl)).size).toBe(2); // one style per ZONE
+    expect(after.every((p) => p.styleUrl?.startsWith('#nge-cat-'))).toBe(true);
+    // Line width threaded through into the generated styles.
+    const styleId = after[0].styleUrl!.slice(1);
+    expect(doc.data.sharedStyles.get(styleId)?.line?.width).toBe(3);
+
+    // Undo restores the original single-style pointers.
+    doc.undo();
+    expect(doc.placemarksUnder().map((p) => p.styleUrl)).toEqual(before);
     expect(serializeKml(doc.data)).not.toContain('nge-cat-');
   });
 });
