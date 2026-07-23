@@ -10,10 +10,10 @@ import type { VectorInfo } from '@shared/gdal';
 // (~50%). aabbggrr — ffffffff = opaque white, 80ffffff = ~50% white.
 function defaultStyle(kind: Geometry['kind']): KmlStyle {
   if (kind === 'Point') return { icon: { color: 'ffffffff', scale: 1 } };
-  if (kind === 'LineString') return { line: { color: 'ffffffff', width: 2 } };
+  if (kind === 'LineString') return { line: { color: 'ffffffff', width: 1 } };
   if (kind === 'Polygon')
     return {
-      line: { color: 'ffffffff', width: 2 },
+      line: { color: 'ffffffff', width: 1 },
       poly: { color: '80ffffff', fill: true, outline: true },
     };
   return {};
