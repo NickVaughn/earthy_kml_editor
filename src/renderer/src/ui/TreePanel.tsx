@@ -285,6 +285,17 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
     (e: React.MouseEvent, nodeId: string) => {
       e.preventDefault();
       e.stopPropagation();
+      // macOS fires `contextmenu` on Ctrl+click. Treat that as an additive
+      // multi-select toggle (parity with Cmd-click, and with Windows Ctrl+click,
+      // which reaches react-arborist as a normal click) rather than a menu.
+      if (e.ctrlKey) {
+        const n = treeRef.current?.get(nodeId);
+        if (n) {
+          if (n.isSelected) n.deselect();
+          else n.selectMulti();
+        }
+        return;
+      }
       if (!st.getState().selection.includes(nodeId)) setSelection([nodeId]);
       setMenu({ x: e.clientX, y: e.clientY, nodeId });
     },

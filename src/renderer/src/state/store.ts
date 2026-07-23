@@ -324,7 +324,9 @@ export const useStore = create<AppState>((set, get) => {
       const doc = get().docOf(parentId);
       const folder = doc?.createFolder(parentId);
       if (folder) {
-        set({ selection: [folder.id] });
+        // Select it and ask the tree to start inline-renaming immediately, so
+        // the user can replace "New Folder" without an extra step.
+        set({ selection: [folder.id], renameRequestId: folder.id });
         bumpScene();
       }
     },
