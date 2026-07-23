@@ -64,7 +64,7 @@ export class KmlDocument {
   static empty(): KmlDocument {
     return new KmlDocument({
       root: {
-        id: 'root',
+        id: nextId(), // unique per doc — multiple "Untitled" files must not collide
         type: 'Document',
         name: 'Untitled',
         visible: true,

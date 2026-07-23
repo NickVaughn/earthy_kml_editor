@@ -423,7 +423,13 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
   return (
     <div className="tree-panel" onKeyDown={onKeyDown} onClick={closeMenu}>
       <div className="tree-toolbar">
-        <button title="New file" onClick={() => st.getState().newDocument()}>
+        <button
+          title="New file"
+          onClick={() => {
+            const doc = st.getState().newDocument();
+            st.getState().requestRename(doc.root.id);
+          }}
+        >
           ＋📄
         </button>
         <button

@@ -214,8 +214,10 @@ export function App(): JSX.Element {
   // ---- menu + drop + open-request listeners --------------------------------
   useEffect(() => {
     const offMenu = window.api.onMenuAction((action) => {
-      if (action === 'new') useStore.getState().newDocument();
-      else if (action === 'open') doOpen();
+      if (action === 'new') {
+        const doc = useStore.getState().newDocument();
+        useStore.getState().requestRename(doc.root.id);
+      } else if (action === 'open') doOpen();
       else if (action === 'save') doSave(false);
       else if (action === 'saveAs') doSave(true);
       else if (action === 'undo') useStore.getState().undo();
