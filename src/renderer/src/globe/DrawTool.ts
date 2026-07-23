@@ -66,6 +66,14 @@ export class DrawTool {
     this.viewer.scene.screenSpaceCameraController.enableInputs = enabled;
   }
 
+  private onMove = (e: ScreenSpaceEventHandler.MotionEvent): void => {
+    if (this.freehand) {
+      this.sampleFreehand(e.endPosition);
+      return;
+    }
+    this.floating = this.pickGlobe(e.endPosition);
+  };
+
   private install(): void {
     this.handler.setInputAction((e: ScreenSpaceEventHandler.PositionedEvent) => {
       const c = this.pickGlobe(e.position);
@@ -74,13 +82,7 @@ export class DrawTool {
       if (this.kind === 'Point') this.finish();
     }, ScreenSpaceEventType.LEFT_CLICK);
 
-    this.handler.setInputAction((e: ScreenSpaceEventHandler.MotionEvent) => {
-      if (this.freehand) {
-        this.sampleFreehand(e.endPosition);
-        return;
-      }
-      this.floating = this.pickGlobe(e.endPosition);
-    }, ScreenSpaceEventType.MOUSE_MOVE);
+    this.handler.setInputAction(this.onMove, ScreenSpaceEventType.MOUSE_MOVE);
 
     this.handler.setInputAction(() => {
       // Double-click fires two LEFT_CLICKs first; drop the duplicate vertex.
@@ -91,6 +93,11 @@ export class DrawTool {
     // Shift-drag: sketch a run of vertices along the cursor path. Only lines and
     // polygons take multiple vertices, so freehand is a no-op for points.
     if (this.kind !== 'Point') {
+      // Cesium routes events by exact modifier: while Shift is held the move
+      // events go to the SHIFT handler only, so the freehand sampler must be
+      // registered there too (not just on the unmodified MOUSE_MOVE above).
+      this.handler.setInputAction(this.onMove, ScreenSpaceEventType.MOUSE_MOVE, KeyboardEventModifier.SHIFT);
+
       this.handler.setInputAction((e: ScreenSpaceEventHandler.PositionedEvent) => {
         const c = this.pickGlobe(e.position);
         if (!c) return;
