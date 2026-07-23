@@ -1,4 +1,4 @@
-# NGE — Non-Google Earth
+# Earthy - a KML/KMZ viewer and editor
 
 A lean, cross-platform desktop **KML/KMZ viewer and editor** — a small,
 self-hostable alternative for looking at and editing placemarks, paths, and
@@ -13,7 +13,7 @@ polygons on a 3D globe.
 
 This project is **100% "vibe-coded."** The human author does **not** speak
 JavaScript/TypeScript fluently and drove the whole thing conversationally with an
-AI coding assistant. That means:
+AI coding assistant (Claude Opus and Fable). That means:
 
 - The code may not follow idiomatic JS/TS conventions in places.
 - Architectural decisions were made pragmatically, not always from deep
@@ -39,7 +39,7 @@ It works and it's tested, but it's a hobby/learning artifact first.
 
 ## Built with
 
-NGE stands entirely on the shoulders of these projects — huge thanks to their
+Earthy stands entirely on the shoulders of these projects — huge thanks to their
 authors and communities:
 
 - **[CesiumJS](https://cesium.com/cesiumjs/)** — the 3D globe and geospatial
@@ -76,15 +76,15 @@ npm run make       # build a distributable (macOS dmg, see electron-builder.yml)
 
 ## License
 
-NGE's own source code is licensed under the **PolyForm Noncommercial License
+Earthy's own source code is licensed under the **PolyForm Noncommercial License
 1.0.0** — free for noncommercial use. See [LICENSE](./LICENSE).
 
-Note: this is a *source-available, noncommercial* license, **not** an
+Note: this is a _source-available, noncommercial_ license, **not** an
 OSI-approved "open source" license (open source licenses can't restrict
 commercial use).
 
-NGE bundles third-party components that remain under their own licenses (MIT,
+Earthy bundles third-party components that remain under their own licenses (MIT,
 Apache-2.0, and LGPL-2.1 for the GDAL/GEOS stack). Those licenses are **not**
-changed by NGE's license. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+changed by Earthy's license. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-*Not legal advice — if you plan to redistribute, review the licensing yourself.*
+_Not legal advice — if you plan to redistribute, review the licensing yourself._

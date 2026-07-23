@@ -1,11 +1,11 @@
 # Third-Party Notices
 
-NGE ("Non-Google Earth") is distributed under the PolyForm Noncommercial License
-1.0.0 (see [LICENSE](./LICENSE)). That license covers **only NGE's own source
-code**. NGE also incorporates the third-party components listed below, each of
-which remains licensed under its **own** terms — those terms are not changed by
-NGE's license, and your rights in those components come from their licenses, not
-from NGE's.
+Earthy is distributed under the PolyForm Noncommercial License 1.0.0 (see
+[LICENSE](./LICENSE)). That license covers **only Earthy's own source code**.
+Earthy also incorporates the third-party components listed below, each of which
+remains licensed under its **own** terms — those terms are not changed by
+Earthy's license, and your rights in those components come from their licenses,
+not from Earthy's.
 
 Versions listed are those bundled at the time of writing; regenerate this file
 when dependencies change. Full license texts for the bundled packages are also
@@ -15,7 +15,7 @@ electron-builder).
 
 ---
 
-## Bundled at runtime (shipped in the application)
+## Bundled at runtime (shipped in Earthy)
 
 | Component | Version | License | Project |
 |---|---|---|---|
@@ -58,8 +58,9 @@ WebAssembly.
 - GEOS: **LGPL-2.1** — <https://libgeos.org> — this is the component that makes
   the combined build LGPL.
 
-Because gdal3.js is LGPL-2.1-or-later, NGE ships it as a **separate, replaceable**
-WebAssembly/JS module (it is not statically merged into NGE's own code), and the
+Because gdal3.js is LGPL-2.1-or-later, Earthy ships it as a **separate,
+replaceable** WebAssembly/JS module (it is not statically merged into Earthy's
+own code), and the
 complete corresponding source is available from the gdal3.js project at
 <https://github.com/bugra9/gdal3.js> (version 2.8.1). The LGPL-2.1 text is
 available at <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>.
@@ -117,6 +118,6 @@ option of its `MPL-2.0 OR Apache-2.0` dual license. See
 
 ---
 
-*This is a good-faith starter notice, not legal advice. If you distribute NGE
+*This is a good-faith starter notice, not legal advice. If you distribute Earthy
 widely or otherwise rely on its licensing, have a professional review it — in
 particular the LGPL obligations around the gdal3.js WebAssembly module.*

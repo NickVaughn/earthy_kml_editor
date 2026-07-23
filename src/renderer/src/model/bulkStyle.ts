@@ -47,7 +47,7 @@ function restoreInPlace(target: Record<string, unknown>, snapshot: Record<string
 function freshStyleId(doc: KmlDocumentData): string {
   let id = '';
   do {
-    id = `nge-${nextId()}`;
+    id = `earthy-${nextId()}`;
   } while (doc.sharedStyles.has(id) || doc.sharedStyleMaps.has(id));
   return id;
 }

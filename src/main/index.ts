@@ -56,7 +56,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     backgroundColor: '#1a1a1a',
-    title: 'NGE',
+    title: 'Earthy',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

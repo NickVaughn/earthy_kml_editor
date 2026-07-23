@@ -756,7 +756,7 @@ export class KmlDocument {
 
     const valueToId = new Map<string, string>();
     const styles: KmlStyle[] = specs.map((spec) => {
-      const id = `nge-cat-${nextId()}`;
+      const id = `earthy-cat-${nextId()}`;
       valueToId.set(spec.value, id);
       return buildStyle(id, spec.color, {
         fillMode: spec.fillMode,

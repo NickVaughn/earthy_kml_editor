@@ -73,7 +73,7 @@ export class GlobeRenderer {
 
     const gl = this.viewer.scene.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
     console.info(
-      `[nge] globe initialized (WebGL2: ${gl ? 'yes' : 'no'}, renderer: ${
+      `[earthy] globe initialized (WebGL2: ${gl ? 'yes' : 'no'}, renderer: ${
         gl ? gl.getParameter(gl.RENDERER) : 'n/a'
       })`,
     );
@@ -166,7 +166,7 @@ export class GlobeRenderer {
     const ms = performance.now() - t0;
     const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
     console.info(
-      `[nge] scene built: ${features} features (${this.docs.length} doc${
+      `[earthy] scene built: ${features} features (${this.docs.length} doc${
         this.docs.length === 1 ? '' : 's'
       }) in ${ms.toFixed(0)}ms`,
     );

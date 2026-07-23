@@ -329,7 +329,7 @@ describe('vector import', () => {
     // Undo removes both the features and their styles.
     doc.undo();
     expect(doc.stats().features).toBe(before);
-    expect(serializeKml(doc.data)).not.toContain('nge-cat-');
+    expect(serializeKml(doc.data)).not.toContain('earthy-cat-');
   });
 
   it('imports as the document root: names the doc, no wrapper folder', () => {
@@ -355,7 +355,7 @@ describe('vector import', () => {
     doc.undo();
     expect(doc.root.name).toBe('Untitled');
     expect(doc.root.children.length).toBe(0);
-    expect(serializeKml(doc.data)).not.toContain('nge-cat-');
+    expect(serializeKml(doc.data)).not.toContain('earthy-cat-');
   });
 
   it('restyles existing features by a field value, undoably', () => {
@@ -377,7 +377,7 @@ describe('vector import', () => {
 
     const after = doc.placemarksUnder();
     expect(new Set(after.map((p) => p.styleUrl)).size).toBe(2); // one style per ZONE
-    expect(after.every((p) => p.styleUrl?.startsWith('#nge-cat-'))).toBe(true);
+    expect(after.every((p) => p.styleUrl?.startsWith('#earthy-cat-'))).toBe(true);
     // Line width threaded through into the generated styles.
     const styleId = after[0].styleUrl!.slice(1);
     expect(doc.data.sharedStyles.get(styleId)?.line?.width).toBe(3);
@@ -385,6 +385,6 @@ describe('vector import', () => {
     // Undo restores the original single-style pointers.
     doc.undo();
     expect(doc.placemarksUnder().map((p) => p.styleUrl)).toEqual(before);
-    expect(serializeKml(doc.data)).not.toContain('nge-cat-');
+    expect(serializeKml(doc.data)).not.toContain('earthy-cat-');
   });
 });

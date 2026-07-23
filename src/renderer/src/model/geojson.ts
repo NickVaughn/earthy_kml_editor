@@ -353,13 +353,13 @@ export function geojsonToFolder(
       opts.categories ??
       defaultCategories(distinctValues(features, opts.categoryField!), opts);
     specs.forEach((spec, i) => {
-      const id = `nge-cat-${suffix}-${i}`;
+      const id = `earthy-cat-${suffix}-${i}`;
       styleIdByCategory.set(spec.value, id);
       labelByCategory.set(spec.value, spec.label || spec.value || '(blank)');
       styles.push(buildStyle(id, spec.color, { ...spec, lineWidth: opts.lineWidth }));
     });
   } else {
-    const id = `nge-import-${suffix}`;
+    const id = `earthy-import-${suffix}`;
     const base = opts.singleStyle
       ? { ...structuredClone(opts.singleStyle), id }
       : buildStyle(id, opts.singleColor ?? '#4da6ff', opts);

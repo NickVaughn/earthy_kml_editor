@@ -1,5 +1,5 @@
 /**
- * The NGE KML document model. See PLAN.md §4.
+ * The Earthy KML document model. See PLAN.md §4.
  *
  * Design goal: **round-trip fidelity**. Anything we don't explicitly model is
  * preserved as raw XML (`unknownChildren`) or raw attributes (`attrs`) and
