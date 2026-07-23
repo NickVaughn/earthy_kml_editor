@@ -10,6 +10,7 @@ import type {
   RasterInfo,
   ConvertedLayer,
   ConvertedRaster,
+  RasterPlan,
 } from '@shared/gdal';
 
 /**
@@ -169,19 +170,24 @@ const VRT_DTYPE: Record<string, [string, number]> = {
 /** Roughly how much decoded imagery to hold in memory at once while streaming. */
 const STRIP_BYTES = 64 * 1024 * 1024;
 
+interface GeotiffHeader {
+  image: AnyGdal;
+  width: number;
+  height: number;
+  bands: number;
+  bytesPerPixel: number;
+  epsg: number;
+  originX: number;
+  originY: number;
+  resX: number;
+  resY: number;
+}
+
 /**
- * Decode a TIFF whose compression GDAL/WASM lacks a codec for (JPEG, ZSTD, …)
- * using geotiff.js, then re-expose the pixels as a headerless raw file plus a
- * VRT that GDAL *can* open. Rows are streamed in strips so a large image never
- * has to fit in memory all at once.
- *
- * Returns the paths to hand `Gdal.open` (VRT first, raw as its sidecar) and the
- * temp directory to delete afterwards.
+ * Read a TIFF's header with geotiff.js — dimensions and georeferencing only, no
+ * pixel decoding, so this stays cheap enough for a pre-flight estimate.
  */
-async function decodeViaGeotiff(
-  id: string,
-  path: string,
-): Promise<{ paths: string[]; dir: string }> {
+async function readGeotiffHeader(path: string): Promise<GeotiffHeader> {
   // geotiff pulls in `web-worker`, which — when loaded inside a worker_thread —
   // tries to bootstrap itself AS the worker and destructures an undefined
   // `workerData`. It skips all that if a global `Worker` already exists, and we
@@ -197,12 +203,6 @@ async function decodeViaGeotiff(
   const { fromFile } = await esmImport('geotiff');
   const tiff = await fromFile(path);
   const image = await tiff.getImage();
-
-  const width: number = image.getWidth();
-  const height: number = image.getHeight();
-  const bands: number = image.getSamplesPerPixel();
-  const [originX, originY] = image.getOrigin();
-  const [resX, resY] = image.getResolution();
   const geoKeys = await image.getGeoKeys();
   const epsg = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey;
   if (!epsg) {
@@ -210,13 +210,135 @@ async function decodeViaGeotiff(
       'This file uses a compression GDAL cannot read here, and it has no EPSG code we can fall back on.',
     );
   }
+  const [originX, originY] = image.getOrigin();
+  const [resX, resY] = image.getResolution();
+  return {
+    image,
+    width: image.getWidth(),
+    height: image.getHeight(),
+    bands: image.getSamplesPerPixel(),
+    bytesPerPixel: image.getBytesPerPixel(),
+    epsg,
+    originX,
+    originY,
+    resX,
+    resY,
+  };
+}
+
+/** A VRT carrying only dimensions + georeferencing — no pixel source. Enough
+ *  for GDAL to compute a warp's output size without reading any data. */
+function metadataVrt(h: GeotiffHeader): string {
+  const bandXml = Array.from(
+    { length: h.bands },
+    (_, i) => `  <VRTRasterBand dataType="Byte" band="${i + 1}"/>`,
+  ).join('\n');
+  return (
+    `<VRTDataset rasterXSize="${h.width}" rasterYSize="${h.height}">\n` +
+    `  <SRS>EPSG:${h.epsg}</SRS>\n` +
+    `  <GeoTransform>${h.originX}, ${h.resX}, 0, ${h.originY}, 0, ${h.resY}</GeoTransform>\n` +
+    `${bandXml}\n</VRTDataset>\n`
+  );
+}
+
+/** Output size of warping `dataset` to EPSG:4326, computed via a warped VRT
+ *  (metadata only — GDAL does not touch pixels for `-of VRT`). */
+async function predictWarpSize(Gdal: AnyGdal, dataset: unknown): Promise<[number, number]> {
+  const warped = await Gdal.gdalwarp(dataset, [
+    '-t_srs',
+    'EPSG:4326',
+    '-of',
+    'VRT',
+    '-dstalpha',
+  ]);
+  const wds = (await Gdal.open(warped.real ?? warped)).datasets[0];
+  const info: any = await Gdal.gdalinfo(wds, ['-json']);
+  await Gdal.close(wds).catch(() => undefined);
+  return [info?.size?.[0] ?? 0, info?.size?.[1] ?? 0];
+}
+
+/**
+ * Work out what loading this raster will cost before doing any of it: the
+ * reprojected size, and whether we must decode it ourselves (and how much temp
+ * disk that takes).
+ */
+async function planRaster(id: string, path: string): Promise<RasterPlan> {
+  const Gdal = await loadGdal();
+  progress(id, null, 'Inspecting raster…');
+
+  try {
+    const opened = await Gdal.open(path);
+    const ds = opened.datasets?.[0];
+    if (!ds) throw new Error(errText(opened.errors) || 'GDAL could not open this file.');
+    const info: any = await Gdal.gdalinfo(ds, ['-json']);
+    const [warpedWidth, warpedHeight] = await predictWarpSize(Gdal, ds);
+    await Gdal.close(ds).catch(() => undefined);
+    return {
+      path,
+      driver: info?.driverShortName ?? 'unknown',
+      sourceWidth: info?.size?.[0] ?? 0,
+      sourceHeight: info?.size?.[1] ?? 0,
+      bands: info?.bands?.length ?? 0,
+      bounds: boundsFromInfo(info),
+      needsDecode: false,
+      tempDiskBytes: 0,
+      warpedWidth,
+      warpedHeight,
+    };
+  } catch (e) {
+    if (!isMissingCodec(errText(e))) throw e;
+  }
+
+  // Unsupported codec: read the header ourselves and predict from a
+  // metadata-only VRT, still without decoding a single pixel.
+  const h = await readGeotiffHeader(path);
+  const dir = mkdtempSync(join(tmpdir(), 'earthy-plan-'));
+  const vrtPath = join(dir, 'meta.vrt');
+  writeFileSync(vrtPath, metadataVrt(h));
+  try {
+    const ds = (await Gdal.open(vrtPath)).datasets[0];
+    const [warpedWidth, warpedHeight] = await predictWarpSize(Gdal, ds);
+    const info: any = await Gdal.gdalinfo(ds, ['-json']);
+    await Gdal.close(ds).catch(() => undefined);
+    return {
+      path,
+      driver: 'GTiff (unsupported codec)',
+      sourceWidth: h.width,
+      sourceHeight: h.height,
+      bands: h.bands,
+      bounds: boundsFromInfo(info),
+      needsDecode: true,
+      tempDiskBytes: h.width * h.height * h.bytesPerPixel,
+      warpedWidth,
+      warpedHeight,
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Decode a TIFF whose compression GDAL/WASM lacks a codec for (JPEG, ZSTD, …)
+ * using geotiff.js, then re-expose the pixels as a headerless raw file plus a
+ * VRT that GDAL *can* open. Rows are streamed in strips so a large image never
+ * has to fit in memory all at once.
+ *
+ * Returns the paths to hand `Gdal.open` (VRT first, raw as its sidecar) and the
+ * temp directory to delete afterwards.
+ */
+async function decodeViaGeotiff(
+  id: string,
+  path: string,
+): Promise<{ paths: string[]; dir: string }> {
+  const header = await readGeotiffHeader(path);
+  const { image, width, height, bands, originX, originY, resX, resY, epsg } = header;
 
   const dir = mkdtempSync(join(tmpdir(), 'earthy-raster-'));
   const rawName = 'source.raw';
   const rawPath = join(dir, rawName);
   writeFileSync(rawPath, Buffer.alloc(0));
 
-  const bytesPerPixel: number = image.getBytesPerPixel();
+  const bytesPerPixel = header.bytesPerPixel;
   const rowsPerStrip = Math.max(1, Math.floor(STRIP_BYTES / Math.max(1, width * bytesPerPixel)));
   let dataType = 'Byte';
   let sampleBytes = 1;
@@ -439,6 +561,9 @@ parentPort?.on('message', async (req: GdalRequest) => {
         break;
       case 'inspectRaster':
         result = await inspectRaster(req.id, req.path);
+        break;
+      case 'planRaster':
+        result = await planRaster(req.id, req.path);
         break;
       case 'convertRaster':
         result = await convertRaster(req.id, req.path, req.maxDimension);

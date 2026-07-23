@@ -41,6 +41,29 @@ export interface ConvertedLayer {
 }
 
 /**
+ * What loading a raster as a single overlay will cost, worked out up front
+ * without touching pixels: the size it reprojects to, whether we must decode it
+ * ourselves first (and the temp disk that needs), so the user can be told
+ * before committing to a slow, large operation.
+ */
+export interface RasterPlan {
+  path: string;
+  driver: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  bands: number;
+  /** [west, south, east, north] in degrees. */
+  bounds: [number, number, number, number] | null;
+  /** GDAL has no codec for this file; it must be decoded to temp files first. */
+  needsDecode: boolean;
+  /** Temp disk the decode would use, in bytes (0 when not needed). */
+  tempDiskBytes: number;
+  /** Size after reprojecting to EPSG:4326, before any GPU-limit downsampling. */
+  warpedWidth: number;
+  warpedHeight: number;
+}
+
+/**
  * A raster warped to EPSG:4326 and encoded as PNG, ready to drape on the globe
  * as a single overlay (no tiling). Carries timings/sizes so the UI can report
  * where single-overlay rendering starts to hurt.
@@ -75,6 +98,7 @@ export type GdalRequest =
   | { id: string; type: 'inspectVector'; path: string }
   | { id: string; type: 'convertVector'; path: string; layerName: string }
   | { id: string; type: 'inspectRaster'; path: string }
+  | { id: string; type: 'planRaster'; path: string }
   | { id: string; type: 'convertRaster'; path: string; maxDimension?: number };
 
 /** Responses from the worker. */

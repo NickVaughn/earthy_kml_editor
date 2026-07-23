@@ -28,6 +28,7 @@ const api: Api = {
   convertVector: (path, layerName) =>
     ipcRenderer.invoke('gdal-convert-vector', path, layerName),
   inspectRaster: (path) => ipcRenderer.invoke('gdal-inspect-raster', path),
+  planRaster: (path) => ipcRenderer.invoke('gdal-plan-raster', path),
   convertRaster: (path, maxDimension) =>
     ipcRenderer.invoke('gdal-convert-raster', path, maxDimension),
   onGdalProgress: (cb) => {

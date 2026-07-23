@@ -18,6 +18,7 @@ import {
   inspectVector,
   convertVector,
   inspectRaster,
+  planRaster,
   convertRaster,
   shutdownGdal,
 } from './gdal';
@@ -229,6 +230,7 @@ function registerIpc(): void {
     convertVector(path, layerName),
   );
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
+  ipcMain.handle('gdal-plan-raster', (_e, path: string) => planRaster(path));
   ipcMain.handle('gdal-convert-raster', (_e, path: string, maxDimension?: number) =>
     convertRaster(path, maxDimension),
   );

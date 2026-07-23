@@ -71,6 +71,7 @@ export interface Api {
   inspectVector(path: string): Promise<import('./gdal').VectorInfo>;
   convertVector(path: string, layerName: string): Promise<import('./gdal').ConvertedLayer>;
   inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
+  planRaster(path: string): Promise<import('./gdal').RasterPlan>;
   convertRaster(
     path: string,
     maxDimension?: number,

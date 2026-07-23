@@ -27,6 +27,60 @@ function flash(message: string, ms = 5000): void {
   }, ms);
 }
 
+/** Temp-disk usage worth warning about before committing to a decode. */
+const BIG_TEMP_DISK = 512 * 1024 * 1024;
+
+function fmtBytes(n: number): string {
+  return n >= 1024 ** 3
+    ? `${(n / 1024 ** 3).toFixed(1)} GB`
+    : `${Math.round(n / 1024 ** 2)} MB`;
+}
+
+/**
+ * Spell out what loading a raster will cost — resampling for the GPU limit and
+ * temporary disk for an unsupported codec — and let the user back out. Returns
+ * false only if they cancel; stays silent for unremarkable files so routine
+ * loads aren't nagged.
+ */
+function confirmRasterCost(
+  name: string,
+  plan: import('@shared/gdal').RasterPlan,
+  o: { maxTex: number; willResample: boolean; finalW: number; finalH: number },
+): boolean {
+  if (!o.willResample && plan.tempDiskBytes < BIG_TEMP_DISK) return true;
+
+  const lines = [
+    `${name} is ${plan.sourceWidth.toLocaleString()}×${plan.sourceHeight.toLocaleString()} px, ` +
+      `${plan.bands} band${plan.bands === 1 ? '' : 's'}.`,
+    '',
+  ];
+  if (o.willResample) {
+    const pct = Math.round((o.finalW / plan.warpedWidth) * 100);
+    lines.push(
+      `Reprojected it becomes ${plan.warpedWidth.toLocaleString()}×${plan.warpedHeight.toLocaleString()} px, ` +
+        `which is past this GPU's maximum texture size of ${o.maxTex.toLocaleString()} px.`,
+      `To fit in a single overlay it must be RESAMPLED down to ` +
+        `${o.finalW.toLocaleString()}×${o.finalH.toLocaleString()} px — about ${pct}% of full ` +
+        `resolution — so fine detail will be lost. (Tiled rendering would avoid this.)`,
+      '',
+    );
+  }
+  if (plan.tempDiskBytes > 0) {
+    lines.push(
+      `Its compression isn't supported by the bundled GDAL, so Earthy will decode it first, ` +
+        `using about ${fmtBytes(plan.tempDiskBytes)} of temporary disk space ` +
+        `(freed once loading finishes).`,
+      '',
+    );
+  }
+  lines.push(
+    `It will occupy roughly ${fmtBytes(o.finalW * o.finalH * 4)} of video memory.`,
+    '',
+    'Continue?',
+  );
+  return window.confirm(lines.join('\n'));
+}
+
 const MODE_HINT: Record<string, string> = {
   'draw-point': 'Click on the map to drop a point · Esc to cancel',
   'draw-line':
@@ -194,9 +248,11 @@ export function App(): JSX.Element {
     const name = path.split('/').pop() ?? path;
     const st = useStore.getState();
     try {
+      // Work out the whole cost first — reprojected size, whether the codec
+      // forces a decode, and the temp disk that needs — without touching pixels.
       st.setImportStatus(`Inspecting ${name}…`);
-      const info = await window.api.inspectRaster(path);
-      if (!info.bounds) {
+      const plan = await window.api.planRaster(path);
+      if (!plan.bounds) {
         st.setImportStatus(null);
         alert(`${name} has no georeferencing Earthy can read, so it can't be placed.`);
         return;
@@ -205,28 +261,19 @@ export function App(): JSX.Element {
       // One overlay is one GPU texture, so the GPU's max dimension is a hard
       // ceiling. Downsample to fit rather than failing the upload outright.
       const maxTex = globe.maxTextureSize() || 8192;
+      const warpedMax = Math.max(plan.warpedWidth, plan.warpedHeight);
+      const willResample = warpedMax > maxTex;
+      const scale = willResample ? maxTex / warpedMax : 1;
+      const finalW = Math.round(plan.warpedWidth * scale);
+      const finalH = Math.round(plan.warpedHeight * scale);
 
-      // Warn *before* the (potentially slow) warp when we can already tell the
-      // image is over the limit, so the user can back out.
-      const sourceMax = Math.max(info.width, info.height);
-      const warnedUpFront = sourceMax > maxTex;
-      if (warnedUpFront) {
-        const pct = Math.round((maxTex / sourceMax) * 100);
-        const proceed = window.confirm(
-          `${name} is ${info.width.toLocaleString()}×${info.height.toLocaleString()} px, ` +
-            `larger than this GPU's maximum texture size of ${maxTex.toLocaleString()} px.\n\n` +
-            `As a single overlay it has to be resampled down to roughly ${pct}% of full ` +
-            `resolution, so fine detail will be lost. (Tiled rendering would avoid this.)\n\n` +
-            `Load it anyway?`,
-        );
-        if (!proceed) {
-          st.setImportStatus(null);
-          return;
-        }
+      if (!confirmRasterCost(name, plan, { maxTex, willResample, finalW, finalH })) {
+        st.setImportStatus(null);
+        return;
       }
 
       st.setImportStatus(
-        `Warping ${name} (${info.width.toLocaleString()}×${info.height.toLocaleString()})…`,
+        `Warping ${name} (${plan.sourceWidth.toLocaleString()}×${plan.sourceHeight.toLocaleString()})…`,
       );
       const t0 = performance.now();
       const conv = await window.api.convertRaster(path, maxTex);
@@ -255,7 +302,7 @@ export function App(): JSX.Element {
 
       // Console line is the detailed record for the perf experiment.
       console.info(
-        `[earthy] raster "${name}": source ${info.width}×${info.height}, ` +
+        `[earthy] raster "${name}": source ${plan.sourceWidth}×${plan.sourceHeight}, ` +
           `drawn ${conv.width}×${conv.height} (${((conv.width * conv.height) / 1e6).toFixed(1)} MP), ` +
           `png ${(conv.png.byteLength / 1048576).toFixed(1)} MB, ` +
           `~${((conv.width * conv.height * 4) / 1048576).toFixed(1)} MB vram, ` +
@@ -269,16 +316,6 @@ export function App(): JSX.Element {
           (conv.downsampled ? ' · ⚠ resampled to fit GPU limit' : ''),
         8000,
       );
-
-      // Reprojection can enlarge an image past the limit even when the source
-      // fit, so tell the user if we resampled without having warned already.
-      if (conv.downsampled && !warnedUpFront) {
-        alert(
-          `${name} was resampled to ${conv.width.toLocaleString()}×${conv.height.toLocaleString()} px ` +
-            `to fit this GPU's maximum texture size of ${maxTex.toLocaleString()} px.\n\n` +
-            `Reprojecting to EPSG:4326 enlarged it past the limit, so some fine detail has been lost.`,
-        );
-      }
     } catch (err) {
       st.setImportStatus(null);
       alert(`Could not load ${name}: ${err instanceof Error ? err.message : String(err)}`);
