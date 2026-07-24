@@ -645,6 +645,9 @@ async function convertRaster(
 /** Web Mercator half-extent in metres (EPSG:3857 world edge). */
 const MERC_R = 20037508.342789244;
 const TILE_PX = 256;
+/** Zoom levels generated beyond native resolution, so imagery stays crisp on
+ *  high-DPI displays. Each level costs roughly 4x the tiles of the one above. */
+const OVERSAMPLE_LEVELS = 1;
 
 /** Tile x/y range covering a Web Mercator extent at one zoom level. */
 function tileRange(
@@ -702,12 +705,15 @@ async function tileRaster(
     const bounds = boundsFromInfo(info);
     if (!bounds) throw new Error('Reprojected raster has no usable georeferencing.');
 
-    // Deepest zoom whose tile resolution still resolves the native pixel size.
+    // Deepest zoom that still resolves the native pixel size. Round UP: at zoom
+    // z the tile resolution is 2^-z of the world, so rounding down can leave
+    // tiles coarser than the data (30 m/px source landing on 38 m/px tiles),
+    // visibly throwing away detail. The extra oversampling level keeps it sharp
+    // on high-DPI screens, where one source pixel would otherwise cover several
+    // device pixels — at the cost of ~4x the tiles in that level.
     const resX = (ext.maxX - ext.minX) / Math.max(1, width);
-    const maxZoom = Math.max(
-      0,
-      Math.min(22, Math.round(Math.log2((2 * MERC_R) / TILE_PX / Math.max(resX, 1e-9)))),
-    );
+    const nativeZoom = Math.ceil(Math.log2((2 * MERC_R) / TILE_PX / Math.max(resX, 1e-9)));
+    const maxZoom = Math.max(0, Math.min(22, nativeZoom + OVERSAMPLE_LEVELS));
     // Shallowest zoom where the whole raster still fits in a couple of tiles.
     let minZoom = 0;
     for (let z = 0; z <= maxZoom; z++) {
