@@ -422,9 +422,20 @@ async function decodeViaGeotiff(
   // stride between pixels is the full pixel width.
   const pixelOffset = bands * sampleBytes;
   const lineOffset = width * pixelOffset;
+  // Declare colour interpretation: without it GDAL can't tell that the last
+  // band of an RGBA image is alpha, and -dstalpha would append a fifth band
+  // that PNG can't represent.
+  const interp = (i: number): string | null => {
+    if (bands === 1) return i === 0 ? 'Gray' : null;
+    if (bands === 2) return ['Gray', 'Alpha'][i] ?? null;
+    if (bands === 3) return ['Red', 'Green', 'Blue'][i] ?? null;
+    if (bands === 4) return ['Red', 'Green', 'Blue', 'Alpha'][i] ?? null;
+    return ['Red', 'Green', 'Blue'][i] ?? null; // >4: tag RGB, leave extras
+  };
   const bandXml = Array.from({ length: bands }, (_, i) =>
     [
       `  <VRTRasterBand dataType="${dataType}" band="${i + 1}" subClass="VRTRawRasterBand">`,
+      ...(interp(i) ? [`    <ColorInterp>${interp(i)}</ColorInterp>`] : []),
       `    <SourceFilename relativeToVRT="1">${rawName}</SourceFilename>`,
       `    <ImageOffset>${i * sampleBytes}</ImageOffset>`,
       `    <PixelOffset>${pixelOffset}</PixelOffset>`,
@@ -444,6 +455,35 @@ async function decodeViaGeotiff(
   );
 
   return { paths: [vrtPath, rawPath], dir };
+}
+
+/** `-dstalpha`, unless the dataset already carries an alpha band (adding a
+ *  second one pushes RGBA sources to five bands, which PNG can't store). */
+async function alphaWarpArgs(Gdal: AnyGdal, dataset: unknown): Promise<string[]> {
+  try {
+    const info: any = await Gdal.gdalinfo(dataset, ['-json']);
+    const bands: any[] = info?.bands ?? [];
+    const hasAlpha = bands.some((b) => b.colorInterpretation === 'Alpha');
+    return hasAlpha ? [] : ['-dstalpha'];
+  } catch {
+    return ['-dstalpha'];
+  }
+}
+
+/** PNG stores at most 4 Byte bands; build the `gdal_translate` args that make
+ *  an arbitrary warped raster fit. */
+function pngBandArgs(info: any): string[] {
+  const bands: any[] = info?.bands ?? [];
+  const args: string[] = [];
+  if (bands.length > 4) {
+    const alphaIndex = bands.findIndex((b) => b.colorInterpretation === 'Alpha');
+    args.push('-b', '1', '-b', '2', '-b', '3');
+    args.push('-b', String(alphaIndex >= 0 ? alphaIndex + 1 : bands.length));
+  }
+  if (bands.some((b) => b.type !== 'Byte' && b.colorInterpretation !== 'Alpha')) {
+    args.push('-ot', 'Byte', '-scale');
+  }
+  return args;
 }
 
 /** True for GDAL errors that mean "libtiff has no codec for this compression". */
@@ -551,7 +591,7 @@ async function convertRaster(
       'EPSG:4326',
       '-of',
       'GTiff',
-      '-dstalpha',
+      ...(await alphaWarpArgs(Gdal, src)),
       // Without this gdalwarp *updates* an existing output of the same name —
       // e.g. from an earlier load of this raster in the same session.
       '-overwrite',
@@ -565,21 +605,7 @@ async function convertRaster(
     const bounds = boundsFromInfo(wInfo);
     if (!bounds) throw new Error('Raster has no usable georeferencing.');
 
-    const args: string[] = ['-of', 'PNG'];
-
-    // PNG takes at most 4 bands; keep the first three plus the alpha we just added.
-    const bandTypes: string[] = (wInfo?.bands ?? []).map((b: any) => b.colorInterpretation === 'Alpha' ? 'Alpha' : b.type);
-    const bandCount = (wInfo?.bands ?? []).length;
-    if (bandCount > 4) {
-      args.push('-b', '1', '-b', '2', '-b', '3', '-b', String(bandCount));
-    }
-
-    // PNG only stores Byte/UInt16 — rescale anything else into 8-bit.
-    const nonByte = (wInfo?.bands ?? []).some(
-      (b: any) => b.type !== 'Byte' && b.colorInterpretation !== 'Alpha',
-    );
-    if (nonByte) args.push('-ot', 'Byte', '-scale');
-    void bandTypes;
+    const args: string[] = ['-of', 'PNG', ...pngBandArgs(wInfo)];
 
     let downsampled = false;
     if (maxDimension && Math.max(width, height) > maxDimension) {
@@ -657,7 +683,7 @@ async function tileRaster(
       'EPSG:3857',
       '-of',
       'GTiff',
-      '-dstalpha',
+      ...(await alphaWarpArgs(Gdal, src)),
       '-overwrite',
     ]);
     const wds = (await Gdal.open(warped.real ?? warped)).datasets[0];
@@ -696,6 +722,9 @@ async function tileRaster(
       total += (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1);
     }
 
+    // Every tile is a PNG, so it needs the same band/type conditioning.
+    const tileBandArgs = pngBandArgs(info);
+
     mkdirSync(cacheDir, { recursive: true });
     let done = 0;
     let bytes = 0;
@@ -715,6 +744,7 @@ async function tileRaster(
             [
               '-of',
               'PNG',
+              ...tileBandArgs,
               '-outsize',
               String(TILE_PX),
               String(TILE_PX),
