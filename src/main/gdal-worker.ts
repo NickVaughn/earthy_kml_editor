@@ -32,6 +32,17 @@ type AnyGdal = any;
 
 let gdalPromise: Promise<AnyGdal> | null = null;
 
+/**
+ * GDAL's own diagnostics. gdal3.js reports a *secondary* "Pointer 'hDS' is
+ * NULL" error when an operation returns nothing, which hides the message that
+ * actually explains the failure — so keep the last few and re-attach them.
+ */
+const gdalMessages: string[] = [];
+
+function clearGdalMessages(): void {
+  gdalMessages.length = 0;
+}
+
 function loadGdal(): Promise<AnyGdal> {
   if (gdalPromise) return gdalPromise;
   gdalPromise = (async () => {
@@ -41,7 +52,14 @@ function loadGdal(): Promise<AnyGdal> {
     const distDir = join(dirname(pkgJson), 'dist', 'package');
     const rel = relative(process.cwd(), distDir) || '.';
     const initGdalJs = require('gdal3.js/node');
-    return initGdalJs({ path: rel });
+    return initGdalJs({
+      path: rel,
+      errorHandler: (text: string) => {
+        gdalMessages.push(String(text).trim());
+        if (gdalMessages.length > 25) gdalMessages.shift();
+        console.error(`gdal: ${text}`);
+      },
+    });
   })();
   return gdalPromise;
 }
@@ -77,14 +95,27 @@ function progress(id: string, fraction: number | null, message: string): void {
 
 /** Normalize gdal3.js's odd error shapes into a readable string. */
 function errText(e: unknown): string {
-  if (e instanceof Error && e.message) return e.message;
-  if (Array.isArray(e)) {
+  let base: string;
+  if (e instanceof Error && e.message) base = e.message;
+  else if (Array.isArray(e)) {
     const msgs = e.map((x) => (x && typeof x === 'object' ? (x as any).message : String(x)));
-    const joined = msgs.filter(Boolean).join('; ');
-    return joined || 'GDAL could not read this file (unsupported or corrupt).';
+    base = msgs.filter(Boolean).join('; ') ||
+      'GDAL could not read this file (unsupported or corrupt).';
+  } else if (e && typeof e === 'object' && (e as any).message) {
+    base = String((e as any).message);
+  } else {
+    base = String(e);
   }
-  if (e && typeof e === 'object' && (e as any).message) return String((e as any).message);
-  return String(e);
+
+  // A NULL-pointer complaint means the real operation already failed; surface
+  // what GDAL actually said instead of the useless pointer message.
+  if (/Pointer '\w+' is NULL/i.test(base)) {
+    const real = gdalMessages
+      .filter((m) => m && !/is NULL in/i.test(m))
+      .slice(-3);
+    if (real.length) return real.join(' | ');
+  }
+  return base;
 }
 
 /** Run ogr2ogr to GeoJSON in WGS84 and return the parsed result. */
@@ -280,6 +311,7 @@ async function predictWarpSize(Gdal: AnyGdal, dataset: unknown): Promise<[number
     '-of',
     'VRT',
     '-dstalpha',
+    '-overwrite',
   ]);
   const wds = (await Gdal.open(warped.real ?? warped)).datasets[0];
   const info: any = await Gdal.gdalinfo(wds, ['-json']);
@@ -520,6 +552,9 @@ async function convertRaster(
       '-of',
       'GTiff',
       '-dstalpha',
+      // Without this gdalwarp *updates* an existing output of the same name —
+      // e.g. from an earlier load of this raster in the same session.
+      '-overwrite',
     ]);
     const wOpened = await Gdal.open(warped.real ?? warped);
     const wds = wOpened.datasets[0];
@@ -623,6 +658,7 @@ async function tileRaster(
       '-of',
       'GTiff',
       '-dstalpha',
+      '-overwrite',
     ]);
     const wds = (await Gdal.open(warped.real ?? warped)).datasets[0];
     const info: any = await Gdal.gdalinfo(wds, ['-json']);
@@ -721,6 +757,7 @@ async function tileRaster(
 }
 
 parentPort?.on('message', async (req: GdalRequest) => {
+  clearGdalMessages();
   try {
     let result: unknown;
     switch (req.type) {
