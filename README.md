@@ -35,6 +35,11 @@ It works and it's tested, but it's a hobby/learning artifact first.
   categorization (like the import flow).
 - Edit names and descriptions; per-feature balloons.
 - Import other vector formats (via GDAL) with categorized styling.
+- **Import rasters** (GeoTIFF and friends). Small ones drape as a single image
+  embedded in the file; large ones can be tiled into a zoom pyramid instead of
+  being scaled down — saved as a KML super-overlay, so a tiled raster stays
+  portable and opens in Google Earth at full detail. Long imports show progress
+  and can be cancelled.
 - Undo/redo throughout, multiple basemaps, and keyboard shortcuts.
 
 ## Built with

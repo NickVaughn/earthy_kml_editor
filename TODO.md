@@ -87,9 +87,22 @@ computing `{parentId, index, level}` ourselves from pointer position + a custom
 drop indicator, wired to `KmlDocument.move`. Non-trivial; needs interactive
 iteration (drag behavior can't be unit-tested headlessly).
 
+## Phase 4 leftovers (vector declared done 2026-07-23)
+
+Small gaps against PLAN §6, deprioritised by the user:
+- Multi-layer vector import — §6.1.2 says "choose layer(s)"; we do one at a time.
+- No target-folder chooser in the import dialog (imports land in the selection).
+- Bare `.shp` with sidecars unverified (`.zip` works).
+- Perf bar never measured: 8,000 parcels in < 30 s.
+- Raster never tested at ≥ 2 GB.
+
 ## Other deferred (from PLAN §10)
 - NetworkLink refresh semantics (currently parsed/preserved/display-once only)
 - KML Regions / LOD
 - Google Photorealistic 3D Tiles basemap
 - COG streaming without pre-tiling
+- Earthy renders KML super-overlays it *didn't* generate (no NetworkLink/Region
+  LOD support; our own tiled rasters are recognised by their ExtendedData marker
+  and rendered from the tile cache instead)
+- Automatic re-tiling when a document references a pyramid that's been cleared
 - Geocoding beyond lat/lon parse

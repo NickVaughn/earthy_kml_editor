@@ -133,7 +133,7 @@ Draw and reshape features directly on the globe.
 - **Polygon fill visibility fix.** GroundPrimitives were nested in a generic `PrimitiveCollection`, which prevents the classification pass from rendering them — moved to the scene's dedicated `groundPrimitives` collection. This should fix both invisible fills and interior picking. *(Needs manual confirmation — can't verify pixels headlessly.)*
 - **Cross-file drag.** Features/folders can be dragged between open documents. Implemented as detach-from-source + clone-into-target (fresh ids), with the referenced **shared styles copied along** (identical ids reused, conflicting ids imported under a fresh id) so dragged features keep their styling. Recorded as a **single compound undo entry** on the target document that reverts both sides. Known nit: undoing a cross-file move leaves the imported (now unused) style definitions in the target — harmless, and it keeps undo/redo symmetric. Covered by `test/crossdoc.test.ts`.
 
-## Phase 4 — Imports (vector done; raster single-overlay done, tiling next)
+## Phase 4 — Imports ✅ (vector + raster, incl. tiling)
 
 ### Feasibility (verified before building)
 gdal3.js 2.8.1 (GDAL/OGR compiled to WASM) loads in Electron's Node side: **53 vector + 128 raster drivers** incl. ESRI Shapefile, GPKG, GTiff. Confirmed it reads arbitrary filesystem paths, runs inside a `worker_thread` with the host staying responsive, and round-trips a shapefile. API notes learned the hard way:
@@ -181,24 +181,71 @@ off `getInfo()`, which doesn't carry them, so **bounds was always null** (raster
 could never have been placed); and `setBasemap` called `imageryLayers.removeAll()`,
 which would have wiped raster overlays on a basemap switch.
 
-### Remaining for Phase 4
+### Raster tiling + portability ✅
 
-Raster (the current focus):
-1. **Rasters aren't in the document.** §6.2.2 wants a GroundOverlay node in the tree; today they live in a separate `rasters` store list + panel, so they get no folders, ordering, visibility inheritance, or undo.
-2. **Rasters aren't saved.** Load one, save the KML, it's gone. §6.2.2 wants a `<GroundOverlay>` (image inside the KMZ when it fits).
-3. **No tiling for large rasters** (§6.2.3) — the `earthy-tiles://` pyramid with progress UI. The table above is the evidence for where this becomes necessary.
-4. **Untested at ≥ 2 GB** (§6.2.4).
+Large rasters can be brought in as an XYZ pyramid instead of being scaled down.
+On import, a pre-flight (`planRaster`) predicts the reprojected size from a
+*warped VRT* — GDAL derives output dimensions from georeferencing alone, no
+pixels touched (~200 ms even at 67 MP) — and if one overlay would exceed the
+GPU's `MAX_TEXTURE_SIZE` the user chooses **Tile it** or **Resample**, as
+Google Earth does.
 
-Vector (small gaps):
-5. **Single layer at a time** — §6.1.2 says "choose layer(s)".
-6. **No target-folder chooser** — imports land in the selection/active document implicitly.
-7. **Shapefile sidecar auto-discovery unverified** (§6.1.4) — `.zip` works; a bare `.shp` with `.dbf`/`.shx` beside it is untested.
-8. **Perf bar never measured** — 8,000 parcels in < 30 s.
+- `tileRaster` warps once to EPSG:3857 then cuts 256px PNGs straight to disk, so
+  memory stays flat regardless of source size. Cached under
+  `<userData>/tiles/<hash>` keyed by file identity, served through a privileged
+  `earthy-tiles://` protocol that resolves strictly inside the cache and answers
+  misses with a transparent tile.
+- Max zoom rounds **up** from native resolution (rounding down left 30 m data on
+  38 m/px tiles) plus one oversampling level for high-DPI. Each level costs ~4x
+  the tiles: 4096² → 650 tiles / 9 s at native, 2,414 / 37 s with the deeper
+  levels; 8192² → ~2,400 tiles / 33 s.
+- **Saving to KMZ embeds the pyramid as a KML super-overlay** (per-tile Region +
+  LOD + NetworkLinks), so a tiled raster is portable and renders natively in
+  Google Earth. Opening a KMZ restores the pyramid to the cache — never as data
+  URLs, since there can be tens of thousands of tiles. That makes
+  **File ▸ Clear Tile Cache** safe.
+- Our tiles are Web Mercator while `<LatLonBox>` is plate carrée; measured, the
+  mismatch is sub-pixel over the zoom range generated (~0.7px at z6, ~0.2px at
+  z8) — the same approximation gdal2tiles makes for its mercator profile.
 
-Cross-cutting (the phase's headline requirement — "progress + cancel"):
-9. **Progress is computed but never shown.** The worker posts progress and `onGdalProgress` is exposed all the way to the preload, but **no renderer code subscribes**, so it is dropped. The raster decode already emits percentages nobody sees.
-10. **No cancel.** There is no way to abort a running GDAL job; `shutdownGdal()` only terminates the worker at exit.
-11. **Responsiveness unmeasured.** GDAL runs in a worker_thread (good), but a large PNG is structured-cloned twice (worker→main→renderer); that copy is the likely first bottleneck.
+### Progress + cancel ✅
+
+The worker was already reporting progress and `onGdalProgress` reached the
+preload, but **no renderer code subscribed**, so every report was discarded.
+Now shown over the globe with a bar (indeterminate where GDAL reports no
+fraction) and a Cancel button. Cancelling terminates the worker — GDAL's WASM
+calls are synchronous and can't be interrupted cooperatively — and the next
+request spawns a fresh one; verified a 12.7 s convert aborts in 1.5 s with the
+following job succeeding. Each new worker sweeps temp dirs the terminated one
+couldn't clean up.
+
+### Bugs this phase surfaced (all had escaped every fixture)
+
+- **Overlays were duplicated on every save.** `CONTAINER_CHILD_KNOWN` listed
+  Folder/Document/Placemark but not the overlay types, so each overlay was kept
+  as a raw unknownChild *and* parsed as a child node. No fixture had an overlay;
+  `overlay.kml` (PLAN §8 finally added) caught it immediately.
+- **`inspectRaster` always returned `bounds: null`** — it read
+  `cornerCoordinates`/`wgs84Extent` off `getInfo()`, which doesn't carry them.
+  Rasters could never have been placed.
+- **`setBasemap` called `imageryLayers.removeAll()`**, which would have wiped
+  raster overlays on a basemap switch.
+- **Google Terrain silently fell back to Esri.** Google requires `layerRoadmap`
+  with `terrain`; without it `createSession` fails, and `applyBasemap` quietly
+  substituted Esri, so the basemap looked identical rather than broken.
+- **gdal3.js masks real errors** — it calls `getFileListFromDataset()` on a
+  failed operation's NULL result, so any warp failure surfaced as "Pointer 'hDS'
+  is NULL". An `errorHandler` now re-attaches GDAL's actual message; that is
+  what exposed the next one.
+- **Tiling 4-band rasters failed** ("PNG driver doesn't support 5 bands"). The
+  fallback VRT declared bands with no `<ColorInterp>`, so GDAL couldn't tell
+  band 4 was alpha and `-dstalpha` appended a fifth.
+
+### Deferred from Phase 4 (user deprioritised 2026-07-23)
+
+Vector is considered done. Left undone: multi-layer import (§6.1.2 says
+"layer(s)"), a target-folder chooser, bare-`.shp`-with-sidecars verification,
+the 8,000-parcel/30 s perf bar, and a ≥2 GB GeoTIFF test.
 
 ## Phase 5 — Terrain + polish (next)
 
