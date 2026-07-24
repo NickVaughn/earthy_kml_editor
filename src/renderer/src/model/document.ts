@@ -4,7 +4,7 @@ import { effectiveStyle } from './style';
 import { nextId } from './ids';
 import { applyBulkStyle, type StylePatch } from './bulkStyle';
 import { buildStyle, placemarkFieldValue, type CategorySpec } from './geojson';
-import { tileMarkerExtendedData } from './overlays';
+import { tileMarkerExtendedData, tiledOverlayInfo } from './overlays';
 import type {
   KmlDocumentData,
   KmlNode,
@@ -899,8 +899,22 @@ export class KmlDocument {
     return { patched: first.patched, created: first.created };
   }
 
-  serialize(): string {
-    return serializeKml(this.data);
+  serialize(opts?: import('./serialize').SerializeOptions): string {
+    return serializeKml(this.data, opts);
+  }
+
+  /** Tile pyramids referenced by this document, for embedding in a KMZ. */
+  tiledOverlays(): { hash: string; name: string }[] {
+    const out: { hash: string; name: string }[] = [];
+    const seen = new Set<string>();
+    for (const n of this.walk()) {
+      const marker = tiledOverlayInfo(n);
+      if (marker && !seen.has(marker.hash)) {
+        seen.add(marker.hash);
+        out.push({ hash: marker.hash, name: n.name || 'Raster' });
+      }
+    }
+    return out;
   }
 
   /** Total node + placemark counts, for the status bar. */

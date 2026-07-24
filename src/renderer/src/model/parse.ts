@@ -65,6 +65,15 @@ const PLACEMARK_CHILD_KNOWN = new Set([
 
 const OVERLAY_TYPES = new Set(['GroundOverlay', 'ScreenOverlay', 'NetworkLink']);
 
+const NETWORK_LINK_CHILD_KNOWN = new Set([
+  'name',
+  'visibility',
+  'open',
+  'description',
+  'styleUrl',
+  'ExtendedData',
+]);
+
 const GROUND_OVERLAY_CHILD_KNOWN = new Set([
   'name',
   'visibility',
@@ -322,6 +331,8 @@ function parseContainer(el: Element, doc: KmlDocumentData): KmlNode {
       node.children.push(parsePlacemark(c, doc));
     } else if (tag === 'GroundOverlay') {
       node.children.push(parseGroundOverlay(c));
+    } else if (tag === 'NetworkLink') {
+      node.children.push(parseNetworkLink(c));
     } else if (OVERLAY_TYPES.has(tag)) {
       node.children.push(parseOverlayLike(c));
     }
@@ -421,6 +432,28 @@ function parseGroundOverlay(el: Element): KmlNode {
   return node;
 }
 
+/**
+ * NetworkLink is modelled only far enough to keep its ExtendedData (Earthy
+ * marks embedded tile pyramids there). `<Link>` and everything else is
+ * preserved verbatim.
+ */
+function parseNetworkLink(el: Element): KmlNode {
+  const node: KmlNode = {
+    id: nextId(),
+    kmlId: el.getAttribute('id') ?? undefined,
+    type: 'NetworkLink',
+    name: '',
+    visible: true,
+    children: [],
+    unknownChildren: [],
+    attrs: {},
+  };
+  parseCommon(el, node, NETWORK_LINK_CHILD_KNOWN, (c) => {
+    node.unknownChildren.push(serializeStripped(c));
+  });
+  return node;
+}
+
 function parseOverlayLike(el: Element): KmlNode {
   return {
     id: nextId(),
@@ -516,6 +549,7 @@ export function parseKml(text: string): KmlDocumentData {
       if (tag === 'Placemark') synthetic.children.push(parsePlacemark(c, doc));
       else if (tag === 'Folder') synthetic.children.push(parseContainer(c, doc));
       else if (tag === 'GroundOverlay') synthetic.children.push(parseGroundOverlay(c));
+      else if (tag === 'NetworkLink') synthetic.children.push(parseNetworkLink(c));
       else if (OVERLAY_TYPES.has(tag)) synthetic.children.push(parseOverlayLike(c));
       else if ((tag === 'Style' || tag === 'StyleMap') && c.getAttribute('id')) {
         (synthetic.styles ??= []).push(registerShared(c, doc));

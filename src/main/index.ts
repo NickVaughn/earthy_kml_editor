@@ -23,6 +23,8 @@ import {
   convertRaster,
   tileRaster,
   tilesRoot,
+  tileCacheUsage,
+  clearTileCache,
   cancelGdal,
   shutdownGdal,
 } from './gdal';
@@ -198,6 +200,8 @@ function buildMenu(): void {
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenu('saveAs') },
         { type: 'separator' },
+        { label: 'Clear Tile Cache…', click: () => sendMenu('clearTiles') },
+        { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
@@ -232,14 +236,14 @@ function registerIpc(): void {
       filters: [{ name: 'KML / KMZ', extensions: ['kml', 'kmz'] }],
     });
     if (res.canceled || res.filePaths.length === 0) return null;
-    const opened = await readGeoFile(res.filePaths[0]);
+    const opened = await readGeoFile(res.filePaths[0], tilesRoot());
     pushRecentFile(res.filePaths[0]);
     watchFile(res.filePaths[0]);
     return opened;
   });
 
   ipcMain.handle('open-path', async (_e, path: string) => {
-    const opened = await readGeoFile(path);
+    const opened = await readGeoFile(path, tilesRoot());
     pushRecentFile(path);
     watchFile(path);
     return opened;
@@ -248,7 +252,14 @@ function registerIpc(): void {
   ipcMain.handle('save-file', async (_e, req: SaveRequest) => {
     try {
       selfWriteUntil = Date.now() + 1500; // suppress our own change event
-      await writeGeoFile(req.path, req.kml, req.asKmz, req.resources ?? {});
+      await writeGeoFile(
+        req.path,
+        req.kml,
+        req.asKmz,
+        req.resources ?? {},
+        req.tiled ?? [],
+        tilesRoot(),
+      );
       pushRecentFile(req.path);
       watchFile(req.path);
       return { ok: true, path: req.path };
@@ -268,6 +279,8 @@ function registerIpc(): void {
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
   ipcMain.handle('gdal-cancel', () => cancelGdal());
   ipcMain.handle('gdal-tile-raster', (_e, path: string) => tileRaster(path));
+  ipcMain.handle('tile-cache-usage', () => tileCacheUsage());
+  ipcMain.handle('tile-cache-clear', () => clearTileCache());
   ipcMain.handle('gdal-plan-raster', (_e, path: string) => planRaster(path));
   ipcMain.handle('gdal-convert-raster', (_e, path: string, maxDimension?: number) =>
     convertRaster(path, maxDimension),

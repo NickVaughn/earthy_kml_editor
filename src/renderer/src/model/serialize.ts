@@ -218,7 +218,31 @@ function writeOverlay(w: Writer, overlay: OverlayData): void {
   }
 }
 
-function writeNode(w: Writer, node: KmlNode): void {
+/**
+ * When embedding tile pyramids in a KMZ, a tiled overlay is written as a
+ * NetworkLink to its super-overlay instead of a GroundOverlay pointing at a
+ * local file — that's what makes it render in Google Earth and on other
+ * machines. The tile marker rides along as ExtendedData so we still recognise
+ * it when reopening.
+ */
+function writeSuperOverlayLink(w: Writer, node: KmlNode, hash: string): void {
+  w.open('NetworkLink');
+  if (node.name) w.leaf('name', node.name);
+  if (node.visible === false) w.leaf('visibility', '0');
+  if (node.extendedData) w.raw(node.extendedData.raw);
+  w.open('Link');
+  w.leaf('href', `tiles/${hash}/doc.kml`);
+  w.close('Link');
+  w.close('NetworkLink');
+}
+
+function writeNode(w: Writer, node: KmlNode, opts: SerializeOptions): void {
+  const hash = opts.superOverlayHash?.(node);
+  if (hash) {
+    writeSuperOverlayLink(w, node, hash);
+    return;
+  }
+
   if (node.rawElement && node.type !== 'Placemark' && node.children.length === 0) {
     w.raw(node.rawElement);
     return;
@@ -253,13 +277,19 @@ function writeNode(w: Writer, node: KmlNode): void {
   } else {
     if (node.extendedData) w.raw(node.extendedData.raw);
     for (const r of node.unknownChildren) w.raw(r);
-    for (const child of node.children) writeNode(w, child);
+    for (const child of node.children) writeNode(w, child, opts);
   }
 
   w.close(tag);
 }
 
-export function serializeKml(doc: KmlDocumentData): string {
+export interface SerializeOptions {
+  /** Returns a pyramid hash when this node should be written as a super-overlay
+   *  NetworkLink rather than a GroundOverlay (KMZ export). */
+  superOverlayHash?: (node: KmlNode) => string | undefined;
+}
+
+export function serializeKml(doc: KmlDocumentData, opts: SerializeOptions = {}): string {
   const w = new Writer();
   w.line('<?xml version="1.0" encoding="UTF-8"?>');
   const kmlAttrs =
@@ -267,7 +297,7 @@ export function serializeKml(doc: KmlDocumentData): string {
       ? doc.kmlAttrs
       : { xmlns: 'http://www.opengis.net/kml/2.2' };
   w.open('kml', kmlAttrs);
-  writeNode(w, doc.root);
+  writeNode(w, doc.root, opts);
   w.close('kml');
   return w.toString() + '\n';
 }

@@ -31,6 +31,8 @@ const api: Api = {
   inspectRaster: (path) => ipcRenderer.invoke('gdal-inspect-raster', path),
   cancelGdal: () => ipcRenderer.invoke('gdal-cancel'),
   tileRaster: (path) => ipcRenderer.invoke('gdal-tile-raster', path),
+  tileCacheUsage: () => ipcRenderer.invoke('tile-cache-usage'),
+  clearTileCache: () => ipcRenderer.invoke('tile-cache-clear'),
   planRaster: (path) => ipcRenderer.invoke('gdal-plan-raster', path),
   convertRaster: (path, maxDimension) =>
     ipcRenderer.invoke('gdal-convert-raster', path, maxDimension),

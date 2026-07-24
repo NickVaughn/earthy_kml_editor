@@ -26,5 +26,6 @@
     "src/shared/**/*",
     "src/renderer/src/**/*.tsx",
     "test/**/*"
-  ]
+  ],
+  "exclude": ["test/superoverlay.test.ts"]
 }

@@ -24,6 +24,12 @@ export interface SaveRequest {
   asKmz: boolean;
   /** archive-relative path -> data URL, re-packed into the KMZ on save. */
   resources?: Record<string, string>;
+  /**
+   * Tile pyramids to embed as KML super-overlays, making a tiled raster
+   * portable (and renderable in Google Earth) instead of pointing at a local
+   * cache. Tiles are streamed straight from the cache into the archive.
+   */
+  tiled?: { hash: string; name: string }[];
 }
 
 export interface GoogleSession {
@@ -77,6 +83,10 @@ export interface Api {
   cancelGdal(): Promise<void>;
   /** Build (or reuse) an XYZ tile pyramid for a large raster. */
   tileRaster(path: string): Promise<import('./gdal').TiledRaster>;
+  /** Size of the local tile cache. */
+  tileCacheUsage(): Promise<{ bytes: number; pyramids: number }>;
+  /** Delete every cached pyramid (safe once documents are saved as KMZ). */
+  clearTileCache(): Promise<void>;
   planRaster(path: string): Promise<import('./gdal').RasterPlan>;
   convertRaster(
     path: string,

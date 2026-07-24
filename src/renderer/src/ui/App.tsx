@@ -7,6 +7,7 @@ import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/mod
 import { isVectorPath, isRasterPath } from '@shared/gdal';
 import { useKeybindings } from '@renderer/input/useKeybindings';
 import { withGdalJob, GdalCancelled, gdalJobActive } from '@renderer/state/gdalJob';
+import { tiledOverlayInfo } from '@renderer/model/overlays';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
@@ -41,6 +42,12 @@ function bytesToDataUrl(bytes: Uint8Array, mime = 'image/png'): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return `data:${mime};base64,${btoa(binary)}`;
+}
+
+function fmtBytes(n: number): string {
+  return n >= 1024 ** 3
+    ? `${(n / 1024 ** 3).toFixed(1)} GB`
+    : `${Math.round(n / 1024 ** 2)} MB`;
 }
 
 /** Temp-disk usage worth surfacing before committing to a decode. */
@@ -359,6 +366,35 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  /**
+   * Drop the local tile pyramids. Safe for documents already saved as KMZ —
+   * those embed their tiles and restore them on open — so the warning is about
+   * rasters that have only been tiled in this session.
+   */
+  const clearTiles = useCallback(async () => {
+    const { bytes, pyramids } = await window.api.tileCacheUsage();
+    if (!pyramids) {
+      flash('No cached raster tiles to clear.');
+      return;
+    }
+    const unsaved = useStore
+      .getState()
+      .docs.filter((d) => d.tiledOverlays().length > 0 && (d.dirty || !d.wasKmz));
+    const caveat = unsaved.length
+      ? `\n\n${unsaved.length} open file${unsaved.length === 1 ? '' : 's'} ` +
+        `with tiled rasters ${unsaved.length === 1 ? 'has' : 'have'} not been saved as KMZ. ` +
+        `Those overlays will go blank until the rasters are re-imported.`
+      : `\n\nDocuments already saved as KMZ embed their tiles and will restore them when reopened.`;
+    const ok = window.confirm(
+      `Delete ${pyramids} cached tile pyramid${pyramids === 1 ? '' : 's'} ` +
+        `(${fmtBytes(bytes)})?${caveat}`,
+    );
+    if (!ok) return;
+    await window.api.clearTileCache();
+    void globeRef.current?.syncGroundOverlays();
+    flash(`Cleared ${fmtBytes(bytes)} of cached tiles.`);
+  }, []);
+
   // ---- file operations -----------------------------------------------------
   // Opening adds a document to the workspace (multi-doc), so no discard guard.
   const doOpen = useCallback(async () => {
@@ -378,9 +414,11 @@ export function App(): JSX.Element {
     let path = doc.path;
     let asKmz = doc.wasKmz;
 
-    // Imagery lives in the document's resources, which only KMZ can carry.
+    // Imagery — embedded images and tile pyramids alike — only KMZ can carry.
     const hasEmbeddedImagery = [...doc.walk()].some(
-      (n) => n.type === 'GroundOverlay' && n.overlay?.href && doc.resources[n.overlay.href],
+      (n) =>
+        (n.type === 'GroundOverlay' && n.overlay?.href && doc.resources[n.overlay.href]) ||
+        !!tiledOverlayInfo(n),
     );
 
     if (!path || forceDialog) {
@@ -399,18 +437,28 @@ export function App(): JSX.Element {
     // would silently drop it; the Save As dialog can't help here, so ask.
     if (!asKmz && hasEmbeddedImagery) {
       const ok = window.confirm(
-        `This file now contains image overlays, and plain KML can't carry images.\n\n` +
+        `This file contains raster imagery, and plain KML can't carry images.\n\n` +
           `Saving as KML would leave the overlays pointing at files that don't exist. ` +
           `Use “Save As…” and choose KMZ to embed the imagery.\n\nSave as KML anyway?`,
       );
       if (!ok) return;
     }
 
+    // Tiled rasters travel as KML super-overlays, so the file works on other
+    // machines (and in Google Earth) instead of depending on this tile cache.
+    const tiled = asKmz ? doc.tiledOverlays() : [];
+    const tiledHashes = new Set(tiled.map((t) => t.hash));
     const res = await window.api.saveFile({
       path,
-      kml: doc.serialize(),
+      kml: doc.serialize({
+        superOverlayHash: (node) => {
+          const hash = tiledOverlayInfo(node)?.hash;
+          return hash && tiledHashes.has(hash) ? hash : undefined;
+        },
+      }),
       asKmz,
       resources: doc.resources,
+      tiled,
     });
     if (res.ok && res.path) st.markSaved(doc.id, res.path, asKmz);
     else if (!res.ok) alert(`Save failed: ${res.error}`);
@@ -419,7 +467,9 @@ export function App(): JSX.Element {
   // ---- menu + drop + open-request listeners --------------------------------
   useEffect(() => {
     const offMenu = window.api.onMenuAction((action) => {
-      if (action === 'new') {
+      if (action === 'clearTiles') {
+        void clearTiles();
+      } else if (action === 'new') {
         const doc = useStore.getState().newDocument();
         useStore.getState().requestRename(doc.root.id);
       } else if (action === 'open') doOpen();
@@ -482,7 +532,7 @@ export function App(): JSX.Element {
       offDrop();
       offChanged();
     };
-  }, [doOpen, doSave, openPath, loadRaster]);
+  }, [doOpen, doSave, openPath, loadRaster, clearTiles]);
 
   const onChangeBasemap = useCallback(
     async (id: string) => {

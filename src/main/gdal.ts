@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { BrowserWindow, app } from 'electron';
 import { createHash } from 'node:crypto';
 import { stat as fsStat } from 'node:fs/promises';
+import { existsSync, readdirSync, statSync, rmSync } from 'node:fs';
 import type {
   GdalRequest,
   VectorInfo,
@@ -103,6 +104,31 @@ export async function tileRaster(path: string): Promise<TiledRaster> {
     .slice(0, 16);
   const cacheDir = join(tilesRoot(), hash);
   return request<TiledRaster>({ type: 'tileRaster', path, hash, cacheDir });
+}
+
+/** Total bytes held by the tile cache, and how many pyramids it holds. */
+export function tileCacheUsage(): { bytes: number; pyramids: number } {
+  const root = tilesRoot();
+  if (!existsSync(root)) return { bytes: 0, pyramids: 0 };
+  let bytes = 0;
+  const walk = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else bytes += statSync(full).size;
+    }
+  };
+  const pyramids = readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory());
+  for (const p of pyramids) walk(join(root, p.name));
+  return { bytes, pyramids: pyramids.length };
+}
+
+/**
+ * Delete every cached pyramid. Safe once documents have been saved as KMZ,
+ * because the archive embeds its tiles and restores them on open.
+ */
+export function clearTileCache(): void {
+  rmSync(tilesRoot(), { recursive: true, force: true });
 }
 
 /** Root directory holding every raster's tile pyramid. */
