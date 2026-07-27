@@ -73,7 +73,6 @@ export function RestyleDialog({
       hasLine: nodes.some((n) => ['LineString', 'Polygon', 'MultiGeometry'].includes(kind(n))),
       hasPoly: nodes.some((n) => kind(n) === 'Polygon' || kind(n) === 'MultiGeometry'),
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, docOf, revision]);
 
   const canCategorize = t.nodes.length > 1;
@@ -117,7 +116,6 @@ export function RestyleDialog({
       setCategories(defaultCategories(distinct, { ramp, fillMode, fillOpacity, lineOpacity }));
       setEditingCat(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field, distinct]);
 
   const patchAllCategories = (p: Partial<CategorySpec>): void =>

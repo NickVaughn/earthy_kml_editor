@@ -27,7 +27,6 @@ import type {
  * Electron main process. Communicates via GdalRequest/GdalResponse messages.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyGdal = any;
 
 let gdalPromise: Promise<AnyGdal> | null = null;

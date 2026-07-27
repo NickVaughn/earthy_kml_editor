@@ -17,7 +17,6 @@ export function StatusBar(): JSX.Element {
       folders += s.folders;
     }
     return { features, folders };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docs, revision]);
 
   return (

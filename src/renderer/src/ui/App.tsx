@@ -136,7 +136,6 @@ export function App(): JSX.Element {
       await applyBasemap(settings.basemap);
       applyTerrain(settings);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyBasemap = useCallback(async (id: string) => {
@@ -178,7 +177,6 @@ export function App(): JSX.Element {
   useEffect(() => {
     globeRef.current?.setDocuments(useStore.getState().docs);
     void globeRef.current?.syncGroundOverlays();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.docEpoch]);
 
   // ---- content edit: rebuild, keep the camera -----------------------------
@@ -186,14 +184,12 @@ export function App(): JSX.Element {
     if (store.sceneEpoch === 0) return;
     globeRef.current?.rebuild();
     void globeRef.current?.syncGroundOverlays();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.sceneEpoch]);
 
   // ---- visibility-only updates (no rebuild) -------------------------------
   useEffect(() => {
     globeRef.current?.refreshVisibility();
     void globeRef.current?.syncGroundOverlays();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.visEpoch]);
 
   // ---- selection highlight -------------------------------------------------
@@ -255,7 +251,6 @@ export function App(): JSX.Element {
         s().setMode('none');
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.interactionMode]);
 
   // ---- raster overlays (single image, no tiling) --------------------------
