@@ -19,6 +19,10 @@ import {
   HorizontalOrigin,
   VerticalOrigin,
   LabelStyle as CesiumLabelStyle,
+  HeightReference,
+  GroundPolylinePrimitive,
+  GroundPolylineGeometry,
+  PolylineColorAppearance,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
 import type { KmlNode, Geometry, Position } from '@renderer/model/types';
@@ -46,7 +50,19 @@ export interface SceneHandle {
   dispose(): void;
 }
 
-export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
+/**
+ * Build the batched Cesium scene for the open documents. When `terrainOn`, point
+ * features clamp to the ground (heightReference) and lines drape via a ground
+ * primitive, so everything sits on the surface and is occluded by relief instead
+ * of hovering at sea level and painting over the terrain. Explicit KML
+ * altitudeMode handling (fixed / relative / absolute) lands with the elevation
+ * editor; for now terrain-on means clamp-to-ground.
+ */
+export function buildScene(
+  viewer: Viewer,
+  docs: KmlDocument[],
+  terrainOn: boolean,
+): SceneHandle {
   const primitives = new PrimitiveCollection();
   viewer.scene.primitives.add(primitives);
 
@@ -56,6 +72,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const labels = new LabelCollection({ scene: viewer.scene });
 
   const polygonInstances: GeometryInstance[] = [];
+  const groundLineInstances: GeometryInstance[] = [];
   const bounds = new Map<string, BoundingSphere>();
   const toggles = new Map<string, ShowToggle[]>();
   const cartesianAccum = new Map<string, Cartesian3[]>();
@@ -72,6 +89,25 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   };
 
   const labelCond = new DistanceDisplayCondition(0, 2_000_000);
+
+  // Terrain on → clamp point-like features to the ground; terrain off → NONE
+  // (absolute, which on the flat ellipsoid is the same as before).
+  const clampRef = terrainOn ? HeightReference.CLAMP_TO_GROUND : HeightReference.NONE;
+  const groundLine = (
+    positions: Cartesian3[],
+    width: number,
+    color: Color,
+    id: string,
+    show: boolean,
+  ): GeometryInstance =>
+    new GeometryInstance({
+      geometry: new GroundPolylineGeometry({ positions, width }),
+      attributes: {
+        color: ColorGeometryInstanceAttribute.fromColor(color),
+        show: new ShowGeometryInstanceAttribute(show),
+      },
+      id,
+    });
 
   function addGeometry(
     doc: KmlDocument,
@@ -96,6 +132,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             color: kmlToCesium(style.icon.color, Color.WHITE),
             show: startVisible,
             id: node.id,
+            heightReference: clampRef,
             verticalOrigin: VerticalOrigin.BOTTOM,
           });
           addToggle(node.id, { set: (s) => (bb.show = s) });
@@ -108,6 +145,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             outlineWidth: 1,
             show: startVisible,
             id: node.id,
+            heightReference: clampRef,
           });
           addToggle(node.id, { set: (s) => (pt.show = s) });
         }
@@ -126,6 +164,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             distanceDisplayCondition: labelCond,
             show: startVisible,
             id: node.id,
+            heightReference: clampRef,
           });
           addToggle(node.id, { set: (s) => (lbl.show = s) });
         }
@@ -135,18 +174,22 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         const carts = toCartesians(g.coordinates);
         if (carts.length < 2) break;
         accum(node.id, carts);
-        const line = polylines.add({
-          positions: carts,
-          width: style.line?.width ?? 2,
-          material: undefined,
-          show: startVisible,
-          id: node.id,
-        });
-        // Use per-line color via Material.
-        line.material = polylineColorMaterial(
-          kmlToCesium(style.line?.color, DEFAULT_LINE),
-        );
-        addToggle(node.id, { set: (s) => (line.show = s) });
+        const color = kmlToCesium(style.line?.color, DEFAULT_LINE);
+        const width = style.line?.width ?? 2;
+        if (terrainOn) {
+          // Draped on the terrain surface: follows relief and is occluded by it.
+          groundLineInstances.push(groundLine(carts, width, color, node.id, startVisible));
+        } else {
+          const line = polylines.add({
+            positions: carts,
+            width,
+            material: undefined,
+            show: startVisible,
+            id: node.id,
+          });
+          line.material = polylineColorMaterial(color);
+          addToggle(node.id, { set: (s) => (line.show = s) });
+        }
         break;
       }
       case 'Polygon': {
@@ -175,16 +218,22 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         );
         if (style.poly?.outline !== false) {
           const ring = [...outer, outer[0]];
-          const outline = polylines.add({
-            positions: ring,
-            width: style.line?.width ?? 1.5,
-            show: startVisible,
-            id: node.id,
-          });
-          outline.material = polylineColorMaterial(
-            kmlToCesium(style.line?.color, DEFAULT_LINE),
-          );
-          addToggle(node.id, { set: (s) => (outline.show = s) });
+          const outlineColor = kmlToCesium(style.line?.color, DEFAULT_LINE);
+          const outlineWidth = style.line?.width ?? 1.5;
+          if (terrainOn) {
+            groundLineInstances.push(
+              groundLine(ring, outlineWidth, outlineColor, node.id, startVisible),
+            );
+          } else {
+            const outline = polylines.add({
+              positions: ring,
+              width: outlineWidth,
+              show: startVisible,
+              id: node.id,
+            });
+            outline.material = polylineColorMaterial(outlineColor);
+            addToggle(node.id, { set: (s) => (outline.show = s) });
+          }
         }
         break;
       }
@@ -232,6 +281,28 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
+  // Lines draped on terrain: one batched ground primitive, occluded by relief.
+  let groundLinePrimitive: GroundPolylinePrimitive | null = null;
+  if (groundLineInstances.length > 0) {
+    groundLinePrimitive = new GroundPolylinePrimitive({
+      geometryInstances: groundLineInstances,
+      appearance: new PolylineColorAppearance(),
+      releaseGeometryInstances: false,
+      asynchronous: groundLineInstances.length > 200,
+    });
+    viewer.scene.groundPrimitives.add(groundLinePrimitive);
+    for (const inst of groundLineInstances) {
+      const id = inst.id as string;
+      addToggle(id, {
+        set: (s) => {
+          if (!groundLinePrimitive || !groundLinePrimitive.ready) return;
+          const attr = groundLinePrimitive.getGeometryInstanceAttributes(id);
+          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(s, attr.show);
+        },
+      });
+    }
+  }
+
   primitives.add(polylines);
   primitives.add(points);
   primitives.add(billboards);
@@ -251,6 +322,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     dispose() {
       viewer.scene.primitives.remove(primitives); // destroys children
       if (polygonPrimitive) viewer.scene.groundPrimitives.remove(polygonPrimitive);
+      if (groundLinePrimitive) viewer.scene.groundPrimitives.remove(groundLinePrimitive);
     },
   };
 }

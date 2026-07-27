@@ -56,6 +56,7 @@ export class GlobeRenderer {
   readonly viewer: Viewer;
   private docs: KmlDocument[] = [];
   private scene: SceneHandle | null = null;
+  private terrainOn = false;
   private handler: ScreenSpaceEventHandler;
   private selectionLayer = new PrimitiveCollection();
   private selLines = new PolylineCollection();
@@ -160,9 +161,12 @@ export class GlobeRenderer {
     if (previous) this.viewer.imageryLayers.remove(previous, true);
   }
 
-  /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid. */
+  /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid.
+   *  Rebuilds the scene so features re-clamp to (or lift off) the new surface. */
   setTerrain(provider: TerrainProvider | null): void {
     this.viewer.scene.terrainProvider = provider ?? new EllipsoidTerrainProvider();
+    this.terrainOn = provider !== null;
+    this.rebuildScene();
   }
 
   // ---- GroundOverlay imagery (single image per overlay, no tiling) ---------
@@ -289,7 +293,7 @@ export class GlobeRenderer {
   private rebuildScene(): void {
     this.scene?.dispose();
     const t0 = performance.now();
-    this.scene = buildScene(this.viewer, this.docs);
+    this.scene = buildScene(this.viewer, this.docs, this.terrainOn);
     const ms = performance.now() - t0;
     const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
     console.info(
