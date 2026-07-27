@@ -46,7 +46,10 @@ export interface AppSettings {
   basemap: string; // id of the active basemap
   googleMapType: GoogleMapType;
   customXyzUrl: string;
-  terrainProvider: 'none' | 'maptiler' | 'ion';
+  /** Whether the globe renders 3D terrain relief (vs a flat ellipsoid). */
+  render3DTerrain: boolean;
+  /** Id of the active terrain source (see shared/terrain.ts). */
+  activeTerrainId: string;
 }
 
 export interface Api {
@@ -64,12 +67,16 @@ export interface Api {
   /** The Google tile URL template, with {session}/{key} substituted, {x}{y}{z} left for Cesium. */
   getGoogleTileTemplate(session: string): Promise<string>;
   hasGoogleKey(): Promise<boolean>;
+  /** Raw PNG bytes for a terrain tile; main proxies the remote source (dodges CORS). */
+  fetchTerrainTile(sourceId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   getRecentFiles(): Promise<string[]>;
   /** Register a listener for "open this file" events pushed from main (menu/file assoc). */
   onOpenRequested(cb: (path: string) => void): () => void;
   onMenuAction(cb: (action: string) => void): () => void;
+  /** Terrain enabled / active-source changed from the native Terrain menu. */
+  onTerrainChanged(cb: (settings: AppSettings) => void): () => void;
   /** Native file drag-drop onto the window; yields absolute paths. */
   onFileDrop(cb: (paths: string[]) => void): () => void;
   /** Tell main whether the document has unsaved changes (for the quit guard). */

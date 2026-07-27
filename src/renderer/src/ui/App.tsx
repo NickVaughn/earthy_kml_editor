@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
+import { terrainProviderFor } from '@renderer/globe/terrain';
+import type { AppSettings } from '@shared/ipc';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
 import { isVectorPath, isRasterPath } from '@shared/gdal';
@@ -132,6 +134,7 @@ export function App(): JSX.Element {
       useStore.getState().setSettings(settings);
       useStore.getState().setHasGoogleKey(hasKey);
       await applyBasemap(settings.basemap);
+      applyTerrain(settings);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -156,6 +159,20 @@ export function App(): JSX.Element {
       }
     }
   }, []);
+
+  const applyTerrain = useCallback((s: AppSettings) => {
+    globeRef.current?.setTerrain(
+      s.render3DTerrain ? terrainProviderFor(s.activeTerrainId) : null,
+    );
+  }, []);
+
+  // ---- terrain: apply enable / active-source changes from the Terrain menu -
+  useEffect(() => {
+    return window.api.onTerrainChanged((s) => {
+      useStore.getState().setSettings(s);
+      applyTerrain(s);
+    });
+  }, [applyTerrain]);
 
   // ---- open/close a document: rebuild + frame -----------------------------
   useEffect(() => {

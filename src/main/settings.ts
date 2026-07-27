@@ -5,7 +5,8 @@ const DEFAULTS: AppSettings = {
   basemap: 'esri',
   googleMapType: 'satellite',
   customXyzUrl: '',
-  terrainProvider: 'none',
+  render3DTerrain: false,
+  activeTerrainId: 'aws-terrarium',
 };
 
 interface Schema {

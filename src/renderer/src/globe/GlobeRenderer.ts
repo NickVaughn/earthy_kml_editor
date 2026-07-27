@@ -20,6 +20,8 @@ import {
   UrlTemplateImageryProvider,
   Rectangle,
   defined,
+  EllipsoidTerrainProvider,
+  TerrainProvider,
 } from 'cesium';
 import type { KmlDocument } from '@renderer/model/document';
 import type { Position, Geometry, KmlNode } from '@renderer/model/types';
@@ -156,6 +158,11 @@ export class GlobeRenderer {
     this.baseLayer = this.viewer.imageryLayers.addImageryProvider(provider);
     this.viewer.imageryLayers.lowerToBottom(this.baseLayer);
     if (previous) this.viewer.imageryLayers.remove(previous, true);
+  }
+
+  /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid. */
+  setTerrain(provider: TerrainProvider | null): void {
+    this.viewer.scene.terrainProvider = provider ?? new EllipsoidTerrainProvider();
   }
 
   // ---- GroundOverlay imagery (single image per overlay, no tiling) ---------

@@ -28,7 +28,8 @@ import {
   cancelGdal,
   shutdownGdal,
 } from './gdal';
-import type { SaveRequest, GoogleMapType } from '@shared/ipc';
+import type { SaveRequest, GoogleMapType, AppSettings } from '@shared/ipc';
+import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
 
 let mainWindow: BrowserWindow | null = null;
 /** A path passed on the command line / via file association before the window is ready. */
@@ -186,8 +187,39 @@ function sendMenu(action: string): void {
   mainWindow?.webContents.send('menu-action', action);
 }
 
+function sendTerrain(settings: AppSettings): void {
+  mainWindow?.webContents.send('terrain-changed', settings);
+}
+
 function buildMenu(): void {
   const isMac = process.platform === 'darwin';
+  const settings = getSettings();
+  const terrainItems: MenuItemConstructorOptions[] = [
+    {
+      label: 'Render 3D terrain',
+      type: 'checkbox',
+      checked: settings.render3DTerrain,
+      enabled: BUILTIN_TERRAIN.length > 0,
+      click: () => {
+        const next = setSettings({ render3DTerrain: !getSettings().render3DTerrain });
+        sendTerrain(next);
+        buildMenu();
+      },
+    },
+    { type: 'separator' },
+    ...BUILTIN_TERRAIN.map(
+      (s): MenuItemConstructorOptions => ({
+        label: s.label,
+        type: 'radio',
+        checked: settings.activeTerrainId === s.id,
+        click: () => {
+          const next = setSettings({ activeTerrainId: s.id });
+          sendTerrain(next);
+          buildMenu();
+        },
+      }),
+    ),
+  ];
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [{ role: 'appMenu' as const }]
@@ -224,6 +256,10 @@ function buildMenu(): void {
         { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
+    },
+    {
+      label: 'Terrain',
+      submenu: terrainItems,
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -314,6 +350,21 @@ function registerIpc(): void {
     googleTileTemplate(session),
   );
   ipcMain.handle('has-google-key', () => hasGoogleKey());
+
+  ipcMain.handle(
+    'fetch-terrain-tile',
+    async (_e, sourceId: string, z: number, x: number, y: number) => {
+      const desc = terrainSourceById(sourceId);
+      if (!desc) return null;
+      const remote = desc.urlTemplate
+        .replace('{z}', String(z))
+        .replace('{x}', String(x))
+        .replace('{y}', String(y));
+      const res = await net.fetch(remote);
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    },
+  );
 
   ipcMain.handle('get-settings', () => getSettings());
   ipcMain.handle('set-settings', (_e, partial) => setSettings(partial));

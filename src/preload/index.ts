@@ -11,6 +11,8 @@ const api: Api = {
   getGoogleTileTemplate: (session) =>
     ipcRenderer.invoke('get-google-tile-template', session),
   hasGoogleKey: () => ipcRenderer.invoke('has-google-key'),
+  fetchTerrainTile: (sourceId, z, x, y) =>
+    ipcRenderer.invoke('fetch-terrain-tile', sourceId, z, x, y),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (partial) => ipcRenderer.invoke('set-settings', partial),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
@@ -23,6 +25,11 @@ const api: Api = {
     const listener = (_e: unknown, action: string) => cb(action);
     ipcRenderer.on('menu-action', listener);
     return () => ipcRenderer.removeListener('menu-action', listener);
+  },
+  onTerrainChanged: (cb) => {
+    const listener = (_e: unknown, s: import('@shared/ipc').AppSettings) => cb(s);
+    ipcRenderer.on('terrain-changed', listener);
+    return () => ipcRenderer.removeListener('terrain-changed', listener);
   },
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
   inspectVector: (path) => ipcRenderer.invoke('gdal-inspect-vector', path),

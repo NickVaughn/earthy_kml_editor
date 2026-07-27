@@ -146,7 +146,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   basemap: 'esri',
   googleMapType: 'satellite',
   customXyzUrl: '',
-  terrainProvider: 'none',
+  render3DTerrain: false,
+  activeTerrainId: 'aws-terrarium',
 };
 
 export const useStore = create<AppState>((set, get) => {
