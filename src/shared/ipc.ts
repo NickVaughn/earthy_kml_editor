@@ -52,6 +52,20 @@ export interface AppSettings {
   activeTerrainId: string;
 }
 
+/** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */
+export interface GeoidGrid {
+  width: number;
+  height: number;
+  /** Geographic position of pixel (0,0) — the grid's NW node. */
+  originLon: number;
+  originLat: number;
+  /** Per-pixel step in degrees; dLat is negative (rows run north→south). */
+  dLon: number;
+  dLat: number;
+  /** Row-major undulation N in metres (row 0 = north). MSL = ellipsoidal − N. */
+  values: Float32Array;
+}
+
 export interface Api {
   openFileDialog(): Promise<OpenedFile | null>;
   /** Open a specific path (drag-drop, file association, recent files). */
@@ -69,6 +83,8 @@ export interface Api {
   hasGoogleKey(): Promise<boolean>;
   /** Raw PNG bytes for a terrain tile; main proxies the remote source (dodges CORS). */
   fetchTerrainTile(sourceId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
+  /** The bundled EGM96 geoid grid (parsed in main), or null if unavailable. */
+  getGeoidGrid(): Promise<GeoidGrid | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   getRecentFiles(): Promise<string[]>;

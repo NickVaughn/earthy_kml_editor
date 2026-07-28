@@ -3,6 +3,7 @@ import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { basemapById } from '@renderer/globe/imagery';
 import { terrainProviderFor } from '@renderer/globe/terrain';
+import { loadGeoid, geoidHeight } from '@renderer/model/geoid';
 import type { AppSettings } from '@shared/ipc';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
@@ -98,7 +99,13 @@ export function App(): JSX.Element {
         useStore.getState().setSelection(id ? [id] : []);
         useStore.getState().openBalloon(id);
       },
-      onCoord: (lon, lat) => useStore.getState().setCursor(lon, lat),
+      onCoord: (lon, lat, height) => {
+        // Convert the ellipsoidal height Cesium gives us to orthometric MSL via
+        // the geoid undulation, and keep both for the readout.
+        const n = height != null ? geoidHeight(lon, lat) : null;
+        const msl = height != null && n != null ? height - n : null;
+        useStore.getState().setCursor(lon, lat, height, msl);
+      },
       onContextMenu: (id, x, y) => {
         if (!id) {
           setFeatureMenu(null);
@@ -135,6 +142,7 @@ export function App(): JSX.Element {
       useStore.getState().setHasGoogleKey(hasKey);
       await applyBasemap(settings.basemap);
       applyTerrain(settings);
+      void loadGeoid();
     })();
   }, []);
 

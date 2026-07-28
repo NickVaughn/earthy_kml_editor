@@ -6,6 +6,8 @@ export function StatusBar(): JSX.Element {
   const revision = useStore((s) => s.revision);
   const lon = useStore((s) => s.cursorLon);
   const lat = useStore((s) => s.cursorLat);
+  const ellip = useStore((s) => s.cursorHeight);
+  const msl = useStore((s) => s.cursorHeightMsl);
   const selection = useStore((s) => s.selection);
 
   const stats = useMemo(() => {
@@ -27,7 +29,13 @@ export function StatusBar(): JSX.Element {
       <span>{selection.length > 0 ? `${selection.length} selected` : ''}</span>
       <span className="coord">
         {lon != null && lat != null
-          ? `${lat.toFixed(5)}, ${lon.toFixed(5)}`
+          ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` +
+            (msl != null ? ` · ${Math.round(msl)} m MSL` : '') +
+            (ellip != null
+              ? msl != null
+                ? ` (${Math.round(ellip)} m HAE)`
+                : ` · ${Math.round(ellip)} m`
+              : '')
           : '—'}
       </span>
     </div>

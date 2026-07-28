@@ -69,6 +69,8 @@ interface AppState {
   hasGoogleKey: boolean;
   cursorLon: number | null;
   cursorLat: number | null;
+  cursorHeight: number | null;
+  cursorHeightMsl: number | null;
 
   // lifecycle
   openDoc(opened: OpenedFile): void;
@@ -86,7 +88,12 @@ interface AppState {
   openBalloon(id: string | null): void;
   setSettings(next: AppSettings): void;
   setHasGoogleKey(v: boolean): void;
-  setCursor(lon: number | null, lat: number | null): void;
+  setCursor(
+    lon: number | null,
+    lat: number | null,
+    height?: number | null,
+    heightMsl?: number | null,
+  ): void;
 
   // mutations
   toggleVisibility(id: string): void;
@@ -191,6 +198,8 @@ export const useStore = create<AppState>((set, get) => {
     hasGoogleKey: false,
     cursorLon: null,
     cursorLat: null,
+    cursorHeight: null,
+    cursorHeightMsl: null,
 
     openDoc(opened) {
       const doc = KmlDocument.fromKml(opened.kml);
@@ -248,8 +257,13 @@ export const useStore = create<AppState>((set, get) => {
     setHasGoogleKey(v) {
       set({ hasGoogleKey: v });
     },
-    setCursor(lon, lat) {
-      set({ cursorLon: lon, cursorLat: lat });
+    setCursor(lon, lat, height = null, heightMsl = null) {
+      set({
+        cursorLon: lon,
+        cursorLat: lat,
+        cursorHeight: height,
+        cursorHeightMsl: heightMsl,
+      });
     },
 
     toggleVisibility(id) {

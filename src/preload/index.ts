@@ -13,6 +13,7 @@ const api: Api = {
   hasGoogleKey: () => ipcRenderer.invoke('has-google-key'),
   fetchTerrainTile: (sourceId, z, x, y) =>
     ipcRenderer.invoke('fetch-terrain-tile', sourceId, z, x, y),
+  getGeoidGrid: () => ipcRenderer.invoke('get-geoid-grid'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (partial) => ipcRenderer.invoke('set-settings', partial),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),

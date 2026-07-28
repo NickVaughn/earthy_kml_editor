@@ -13,16 +13,12 @@ import {
   KeyboardEventModifier,
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
+import { geoidHeight } from '@renderer/model/geoid';
 import { vertexMarker, HANDLE_SIZE } from './handles';
 
 export type DrawKind = 'Point' | 'LineString' | 'Polygon';
 
 const DRAW_COLOR = Color.fromCssColorString('#00e5ff');
-
-function cartToLonLat(cart: Cartesian3): Position {
-  const c = Cartographic.fromCartesian(cart);
-  return [CesiumMath.toDegrees(c.longitude), CesiumMath.toDegrees(c.latitude)];
-}
 
 /** Freehand sampling cadence: drop a vertex once the cursor has moved this far
  * (screen pixels) from the last sample. Small enough to feel continuous, large
@@ -51,6 +47,7 @@ export class DrawTool {
     private kind: DrawKind,
     private onFinish: (geometry: Geometry) => void,
     private onCancel: () => void,
+    private terrainOn: boolean,
   ) {
     this.handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
     this.install();
@@ -59,9 +56,29 @@ export class DrawTool {
   }
 
   private pickGlobe(pos: Cartesian2): Cartesian3 | null {
+    // With terrain on, snap vertices to the terrain surface so their captured
+    // elevation is real; otherwise the ellipsoid intersection is enough.
+    if (this.terrainOn) {
+      const ray = this.viewer.camera.getPickRay(pos);
+      const hit = ray ? this.viewer.scene.globe.pick(ray, this.viewer.scene) : undefined;
+      if (hit) return hit;
+    }
     return (
       this.viewer.camera.pickEllipsoid(pos, this.viewer.scene.globe.ellipsoid) ?? null
     );
+  }
+
+  /** Lon/lat, plus the sampled terrain elevation when terrain rendering is on.
+   *  KML `<coordinates>` altitude is height above MSL, so store orthometric
+   *  (ellipsoidal − geoid undulation N) when the geoid grid is available; fall
+   *  back to the raw (ellipsoidal) height if it isn't. */
+  private cartToPosition(cart: Cartesian3): Position {
+    const c = Cartographic.fromCartesian(cart);
+    const lon = CesiumMath.toDegrees(c.longitude);
+    const lat = CesiumMath.toDegrees(c.latitude);
+    if (!this.terrainOn) return [lon, lat];
+    const n = geoidHeight(lon, lat);
+    return [lon, lat, n != null ? c.height - n : c.height];
   }
 
   private setCamera(enabled: boolean): void {
@@ -227,7 +244,7 @@ export class DrawTool {
   }
 
   private toGeometry(): Geometry | null {
-    const pts = this.carts.map(cartToLonLat);
+    const pts = this.carts.map((c) => this.cartToPosition(c));
     if (this.kind === 'Point') {
       return pts.length >= 1 ? { kind: 'Point', coordinates: pts[0] } : null;
     }

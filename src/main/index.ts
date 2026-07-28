@@ -15,6 +15,7 @@ import {
   getRecentFiles,
   pushRecentFile,
 } from './settings';
+import { getGeoidGrid } from './geoid';
 import {
   inspectVector,
   convertVector,
@@ -365,6 +366,8 @@ function registerIpc(): void {
       return new Uint8Array(await res.arrayBuffer());
     },
   );
+
+  ipcMain.handle('get-geoid-grid', () => getGeoidGrid());
 
   ipcMain.handle('get-settings', () => getSettings());
   ipcMain.handle('set-settings', (_e, partial) => setSettings(partial));

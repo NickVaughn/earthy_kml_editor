@@ -10,6 +10,9 @@ files:
 # read them from inside the asar archive.
 asarUnpack:
   - node_modules/gdal3.js/**
+extraResources:
+  - from: resources/geoid
+    to: geoid
 mac:
   category: public.app-category.utilities
   target:

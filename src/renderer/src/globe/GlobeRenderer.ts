@@ -37,7 +37,7 @@ import {
 
 export interface GlobeHandlers {
   onPick: (nodeId: string | null) => void;
-  onCoord: (lon: number, lat: number) => void;
+  onCoord: (lon: number, lat: number, height?: number) => void;
   /** Right-click / option-click on a feature (nodeId null = empty globe).
    * x/y are viewport (client) coordinates for positioning a menu. */
   onContextMenu: (nodeId: string | null, x: number, y: number) => void;
@@ -101,6 +101,22 @@ export class GlobeRenderer {
     this.handler = new ScreenSpaceEventHandler(this.viewer.scene.canvas);
 
     this.handler.setInputAction((movement: ScreenSpaceEventHandler.MotionEvent) => {
+      // With terrain on, read the surface point under the cursor: it carries the
+      // elevation and gives the correct lon/lat even on a tilted view (the
+      // ellipsoid intersection would be the sea-level point behind the relief).
+      if (this.terrainOn) {
+        const ray = this.viewer.camera.getPickRay(movement.endPosition);
+        const hit = ray ? this.viewer.scene.globe.pick(ray, this.viewer.scene) : undefined;
+        if (hit) {
+          const c = Cartographic.fromCartesian(hit);
+          handlers.onCoord(
+            CesiumMath.toDegrees(c.longitude),
+            CesiumMath.toDegrees(c.latitude),
+            c.height,
+          );
+          return;
+        }
+      }
       const cart = this.viewer.camera.pickEllipsoid(
         movement.endPosition,
         this.viewer.scene.globe.ellipsoid,
@@ -433,6 +449,7 @@ export class GlobeRenderer {
         this.activeTool = null;
         onCancel();
       },
+      this.terrainOn,
     );
   }
 
