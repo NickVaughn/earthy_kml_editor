@@ -40,6 +40,12 @@ It works and it's tested, but it's a hobby/learning artifact first.
   being scaled down — saved as a KML super-overlay, so a tiled raster stays
   portable and opens in Google Earth at full detail. Long imports show progress
   and can be cancelled.
+- **Optional 3D terrain** — real relief from Terrarium elevation tiles (AWS
+  Terrain is built in), toggled live from the Terrain menu. The cursor readout
+  reports elevation both as height above mean sea level and above the ellipsoid,
+  using a bundled EGM96 geoid grid. Features render flat unless they explicitly
+  ask otherwise (`altitudeMode absolute` with an altitude), which keeps large
+  files fast.
 - Undo/redo throughout, multiple basemaps, and keyboard shortcuts.
 
 ## Built with

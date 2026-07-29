@@ -96,6 +96,26 @@ Small gaps against PLAN §6, deprioritised by the user:
 - Perf bar never measured: 8,000 parcels in < 30 s.
 - Raster never tested at ≥ 2 GB.
 
+## Phase 5 leftovers (terrain declared done 2026-07-28)
+
+Terrain, altitude handling, the geoid, keyboard shortcuts and the app icon are
+built (PHASE_NOTES §Phase 5). Left undone:
+- Search box — nothing exists; PLAN §7 asks for geocode or at minimum lat/lon
+  parsing. Cesium's own geocoder is disabled in the Viewer config.
+- Acceptance never measured: 50k-feature file usable, selection < 200 ms,
+  pan ≥ 24 fps. The Phase 5 perf work was driven by a real user file instead.
+- GPU/hardware-acceleration verification in a *packaged* macOS build (ANGLE
+  Metal backend).
+- Windows/Linux build smoke test — targets configured, never exercised.
+- User terrain datasets: "Build Terrain from Folder" (Copernicus GLO-30 →
+  Terrarium via the Phase 4 GDAL tiler), "Add Existing", persistence for custom
+  datasets. Mapterhorn PMTiles as a first-class terrain source.
+- `relativeToGround` altitude mode (falls in the flat-at-0 bucket today).
+- Clamped features don't follow terrain — with 3D relief on they sit at sea
+  level. Deliberate (see PHASE_NOTES), but revisit if draping ever gets cheap.
+- Lines wider than 1px still go through `PolylineCollection`, so a bulk restyle
+  to thick lines on a huge file re-enters the slow path.
+
 ## Other deferred (from PLAN §10)
 - NetworkLink refresh semantics (currently parsed/preserved/display-once only)
 - KML Regions / LOD

@@ -247,23 +247,123 @@ Vector is considered done. Left undone: multi-layer import (§6.1.2 says
 "layer(s)"), a target-folder chooser, bare-`.shp`-with-sidecars verification,
 the 8,000-parcel/30 s perf bar, and a ≥2 GB GeoTIFF test.
 
-## Phase 5 — Terrain + polish (next)
+## Phase 5 — Terrain + polish (terrain ✅, polish partly done)
 
-3D terrain is the headline item (PLAN §5.3), and it is **entirely unimplemented**:
-`terrainProvider: 'none' | 'maptiler' | 'ion'` exists in `AppSettings`, the store
-default and the IPC types, but nothing ever constructs a Cesium terrain provider —
-the globe is a smooth ellipsoid today regardless of the setting or basemap.
+### 3D terrain ✅
 
-Work involved: pick a source (Cesium ion token, MapTiler, or derive locally from a
-DEM via the GDAL pipeline we now have), construct `CesiumTerrainProvider`, honour
-KML `altitudeMode` (`clampToGround` / `relativeToGround` / `absolute`), and drape
-clamped features with `GroundPrimitive` / `GroundPolylinePrimitive`. Must toggle
-live without a reload (PLAN §7 acceptance).
+`globe/terrain.ts` `TerrariumTerrainProvider` is **in-house**: it decodes a
+Terrarium PNG into a 65×65 Int16 grid and hands Cesium a `HeightmapTerrainData`.
+No worker, no extra dependency. Tiles are fetched as PNG bytes over IPC and
+decoded with `createImageBitmap(Blob)` — a custom `earthy-terrain://` scheme was
+tried first and produced a black globe, because the canvas read-back was tainted.
+
+`@macrostrat/cesium-martini` was the original pick and was dropped: it needs a
+consumer-supplied Web Worker that isn't in its public exports, its default
+constructor throws, and it decodes Mapbox-RGB rather than Terrarium.
+
+Built-in source is "AWS Terrain (online)". Native Terrain menu = checkbox
+"Render 3D terrain" + a radio group of datasets; `render3DTerrain` and
+`activeTerrainId` persist in electron-store. The old
+`terrainProvider: 'none' | 'maptiler' | 'ion'` union is retired. Toggles live
+without a reload (PLAN §7 acceptance) — nothing is rebuilt on toggle at all now,
+since vector features no longer depend on the surface.
 
 Note for whoever picks this up: Google's *Terrain basemap* is not this. It is
 roadmap styling plus shaded relief — a flat image — so it looks nearly identical
 to Google Roadmap outside mountainous areas. Real 3D relief needs a terrain
 provider.
+
+### Altitude handling ✅ — but NOT as PLAN §5.3 describes
+
+PLAN §5.3 says to drape clamped features with `GroundPrimitive` /
+`GroundPolylinePrimitive`. **That was built, measured, and reversed.** Draping is
+classification: Cesium builds and renders a per-feature stencil shadow volume,
+which is orders of magnitude more expensive than a flat draw. On a 7,644-polygon
+KMZ it took minutes and left the app unresponsive. User's call (2026-07-28):
+*"Speed and consistency are more important to me than interiors."*
+
+So the rule is now:
+
+- `altitudeMode === 'absolute'` **and** a vertex carries Z → render at that
+  altitude. KML altitude is MSL, so the renderer adds the EGM96 geoid undulation
+  to reach the ellipsoidal height Cesium positions by.
+- **Everything else → flat at height 0.** Not clamped. With terrain on, those
+  features sit at sea level and are partly buried by relief. That is the accepted
+  trade, not a bug.
+- `relativeToGround` is not implemented; it falls in the "everything else" bucket.
+
+The app **never creates Z**. New drawn features are 2-D `lon,lat`
+(`DrawTool.cartToPosition`), and imports aren't altered. There is no
+elevation-setting UI — one was built in RestyleDialog and fully reverted, and
+`gx:altitudeOffset` was considered and rejected as a Google extension.
+
+### Geoid ✅
+
+EGM96-15 (`us_nga_egm96_15.tif`, 2.6 MB) is vendored at `resources/geoid/` and
+bundled via `extraResources`. It powers both the status-bar readout
+(`… m MSL (… m HAE)`) and the absolute-render Z→ellipsoidal conversion.
+
+**`src/main/geoid.ts` reads the raw bytes only** (`fs.readFile`); the renderer
+parses them with geotiff and bilinear-samples N. geotiff is ESM-only, and a
+static import in the CommonJS main process compiled to `require()` and threw
+`ERR_REQUIRE_ESM` via its `quick-lru` dep — a hard startup crash. **Do not
+reintroduce geotiff into `src/main`.** (`gdal-worker.ts` is fine; it uses a
+runtime dynamic `import()`.)
+
+### Performance — the load-time collapse and what actually caused it
+
+A 164 MB / 7,644-polygon / 4.1M-vertex KMZ went from unusable to <10 s. Three
+causes, only one of which was the terrain work. Worth recording because the first
+two were each mis-diagnosed once:
+
+- **`PolylineCollection` was ~95% of it.** It does not draw lines; it fakes
+  thickness by expanding every position into a 4-vertex quad, each vertex storing
+  position, prev and next as RTE-encoded pairs — 18 floats per vertex — written
+  by a single-threaded JS loop inside `scene.render()`. Measured on that file:
+  **1,380 MB** of vertex buffers on the main thread, versus **78 MB** for batched
+  `SimplePolylineGeometry` (`arcType: ArcType.NONE`) built in a worker. Hairlines
+  now take the batched path. Lines wider than 1px still need `PolylineCollection`,
+  so a bulk restyle to thick lines re-enters the slow path.
+- **Invisible polygon fills.** `27aef26` made the fill unconditional — rendered
+  transparent when `<fill>0</fill>` — so polygon interiors stayed pickable. Every
+  style in that file is `<fill>0</fill>`, so the app was triangulating 4.1M
+  vertices to draw nothing. Now `<fill>0</fill>` means no fill geometry at all,
+  and interiors are no longer pickable (user doesn't want them).
+- **`isEffectivelyVisible` was O(n²)** — it called `pathTo`, which descends from
+  the root to locate the node. Walks up the existing parent index now.
+
+Diagnostic trap to remember: `Primitive` with `asynchronous: true` triangulates in
+web workers, so fill cost does **not** block the UI. Removing it changed the wall
+clock and nothing the user could feel. `GlobeRenderer` now logs what reached the
+GPU plus a separate "globe interactive Xs" measured from `postRender`, because a
+scene build that reports "instant" can still be followed by a long freeze.
+
+### Polish
+
+- Keyboard shortcuts ✅ (registry in `input/commands.ts`; see TODO.md).
+- App icon ✅ — `build/make-icon.py` draws a globe with a two-vertex linestring
+  and emits `icon.png` / `icon.svg` / `icon.ico` / `icon.icns` from one set of
+  unit coordinates. Small `.iconset`/`.ico` entries are drawn simplified rather
+  than downsampled. `build/` had to be un-ignored (it's electron-builder's
+  `buildResources`, i.e. source). The Dock icon in `npm run dev` is set
+  explicitly, because dev runs inside Electron's own bundle and would otherwise
+  show the Electron icon.
+- Layer tree ✅ — check/uncheck all now carries the folder itself, and checking
+  anything opens its ancestors; unchecking closes them only once nothing visible
+  is left under them.
+
+### Still open in Phase 5
+
+- Search box / geocode (PLAN §7 lists it; nothing exists — Cesium's own geocoder
+  is disabled in the Viewer config).
+- The stated acceptance bar is **unmeasured**: 50k-feature file usable, selection
+  < 200 ms, pan ≥ 24 fps. This phase's perf work was driven by a real user file,
+  not that fixture.
+- GPU/hardware-acceleration verification in a *packaged* macOS build (ANGLE Metal).
+- Windows/Linux build smoke test — targets are configured, never exercised.
+- User terrain datasets: "Build Terrain from Folder" (Copernicus GLO-30 →
+  Terrarium via the Phase 4 GDAL tiler), "Add Existing", and persistence for
+  custom datasets. Mapterhorn PMTiles as a first-class source.
 
 ## How to run
 
