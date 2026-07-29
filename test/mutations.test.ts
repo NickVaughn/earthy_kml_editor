@@ -96,6 +96,51 @@ describe('structural mutations', () => {
     expect(child.visible).toBe(true); // grandchild untouched
   });
 
+  it('check/uncheck all carries the folder itself', () => {
+    const doc = load('simple.kml');
+    const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;
+
+    doc.setChildrenVisibility(shapes.id, false, false);
+    expect(shapes.visible).toBe(false);
+    expect(shapes.children.every((c) => !c.visible)).toBe(true);
+
+    doc.setChildrenVisibility(shapes.id, true, true);
+    expect(shapes.visible).toBe(true);
+    expect([...doc.walk(shapes)].every((n) => n.visible)).toBe(true);
+  });
+
+  it('showing a node opens its ancestors; hiding only closes emptied ones', () => {
+    const doc = load('simple.kml');
+    const root = doc.root;
+    const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;
+    const points = [...doc.walk()].find((n) => n.name === 'Points')!;
+    const polygon = doc.placemarksUnder().find((p) => p.name === 'A polygon')!;
+
+    // Hiding Shapes leaves the root checked — Points is still visible under it.
+    doc.setChildrenVisibility(shapes.id, false, true);
+    expect(shapes.visible).toBe(false);
+    expect(root.visible).toBe(true);
+
+    // Now nothing under the root is visible, so the root follows.
+    doc.setChildrenVisibility(points.id, false, true);
+    expect(points.visible).toBe(false);
+    expect(root.visible).toBe(false);
+
+    // Checking one deep feature re-opens the chain it needs — and only that
+    // chain: Points stays hidden.
+    doc.setVisibility(polygon.id, true);
+    expect(doc.isEffectivelyVisible(polygon)).toBe(true);
+    expect(shapes.visible).toBe(true);
+    expect(root.visible).toBe(true);
+    expect(points.visible).toBe(false);
+
+    // The whole cascade is one undo step.
+    doc.undo();
+    expect(polygon.visible).toBe(false);
+    expect(shapes.visible).toBe(false);
+    expect(root.visible).toBe(false);
+  });
+
   it('copy/paste duplicates a subtree with fresh ids', () => {
     const doc = load('simple.kml');
     const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;

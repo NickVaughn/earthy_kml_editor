@@ -252,37 +252,77 @@ export class KmlDocument {
     this.propEdit('Rename', () => node.name, (v) => (node.name = v), name);
   }
 
-  setVisibility(id: string, visible: boolean): void {
-    const node = this.nodeById(id);
-    if (!node) return;
-    this.propEdit('Visibility', () => node.visible, (v) => (node.visible = v), visible);
+  /**
+   * Apply a batch of `visible` flags as ONE undoable step. Nodes already at the
+   * requested value are dropped, so an unchanged command pushes no undo entry.
+   */
+  private applyVisibility(label: string, changes: Map<KmlNode, boolean>): boolean {
+    const targets = [...changes].filter(([n, v]) => n.visible !== v);
+    if (targets.length === 0) return false;
+    const before = targets.map(([n]) => n.visible);
+    const apply = (restore: boolean[] | null): void => {
+      targets.forEach(([n, v], i) => {
+        n.visible = restore ? restore[i] : v;
+      });
+    };
+    this.pushUndo({ label, undo: () => apply(before), redo: () => apply(null) });
+    apply(null);
+    return true;
   }
 
   /**
-   * Show/hide the contents of a container as one undoable step. `recurse` false
-   * touches only the immediate children; true touches the whole subtree.
-   * Returns false if there was nothing to change.
+   * Fold the ancestors a visibility change implies into `changes`.
+   *
+   * Showing something is pointless while an ancestor is hidden, so showing
+   * opens the whole chain up to the root. Hiding walks up too, but stops at the
+   * first ancestor that still has a visible child — that folder is holding
+   * something the user can still see, so it stays checked. Once one ancestor
+   * stops, every ancestor above it has a visible child too (that very folder),
+   * so there is nothing left to do.
+   *
+   * Pending entries in `changes` count as already applied, so a command that
+   * hides a folder and its subtree sees the folder as hidden when it looks at
+   * the parent's children.
+   */
+  private includeAncestors(
+    node: KmlNode,
+    visible: boolean,
+    changes: Map<KmlNode, boolean>,
+  ): void {
+    for (let p = this.parentOf(node.id); p; p = this.parentOf(p.id)) {
+      if (visible) {
+        changes.set(p, true);
+      } else {
+        if (p.children.some((c) => changes.get(c) ?? c.visible)) return;
+        changes.set(p, false);
+      }
+    }
+  }
+
+  setVisibility(id: string, visible: boolean): void {
+    const node = this.nodeById(id);
+    if (!node) return;
+    const changes = new Map<KmlNode, boolean>([[node, visible]]);
+    this.includeAncestors(node, visible, changes);
+    this.applyVisibility('Visibility', changes);
+  }
+
+  /**
+   * Show/hide a container AND its contents as one undoable step. `recurse` false
+   * touches only the immediate children; true touches the whole subtree. Either
+   * way the folder itself follows — checking a folder's contents while leaving
+   * the folder unchecked would show nothing. Ancestors follow per
+   * {@link includeAncestors}. Returns false if there was nothing to change.
    */
   setChildrenVisibility(folderId: string, visible: boolean, recurse: boolean): boolean {
     const folder = this.nodeById(folderId);
     if (!folder || !this.isContainer(folder)) return false;
     const targets = recurse
-      ? [...this.walk(folder)].filter((n) => n !== folder)
-      : [...folder.children];
-    if (targets.length === 0) return false;
-    const before = targets.map((n) => n.visible);
-    const apply = (state: boolean[] | boolean): void => {
-      targets.forEach((n, i) => {
-        n.visible = typeof state === 'boolean' ? state : state[i];
-      });
-    };
-    this.pushUndo({
-      label: visible ? 'Show items' : 'Hide items',
-      undo: () => apply(before),
-      redo: () => apply(visible),
-    });
-    apply(visible);
-    return true;
+      ? [...this.walk(folder)]
+      : [folder, ...folder.children];
+    const changes = new Map<KmlNode, boolean>(targets.map((n) => [n, visible]));
+    this.includeAncestors(folder, visible, changes);
+    return this.applyVisibility(visible ? 'Show items' : 'Hide items', changes);
   }
 
   delete(ids: string[]): void {
