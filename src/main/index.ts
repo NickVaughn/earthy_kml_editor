@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 'electron';
 import { join, normalize, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { watch, type FSWatcher } from 'node:fs';
+import { watch, existsSync, type FSWatcher } from 'node:fs';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
 import {
@@ -398,7 +398,19 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+/**
+ * In development the app runs inside Electron's own bundle, so macOS shows the
+ * default Electron icon in the Dock — `build/icon.icns` only applies to a
+ * packaged build. Point the Dock at the real icon so a dev run looks right too.
+ */
+function setDevDockIcon(): void {
+  if (process.platform !== 'darwin' || app.isPackaged) return;
+  const icon = join(app.getAppPath(), 'build', 'icon.png');
+  if (existsSync(icon)) app.dock?.setIcon(icon);
+}
+
 app.whenReady().then(() => {
+  setDevDockIcon();
   pendingOpenPath = argvPath(process.argv.slice(1)) ?? pendingOpenPath;
   registerTileProtocol();
   registerIpc();
