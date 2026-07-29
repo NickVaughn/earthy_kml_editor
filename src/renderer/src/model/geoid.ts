@@ -1,22 +1,47 @@
 /**
- * EGM96 geoid access for the renderer. The grid is parsed in the main process
- * and sent here once; we hold it and sample the undulation N live. Orthometric
- * MSL height = ellipsoidal height − N.
+ * EGM96 geoid access for the renderer. Main sends the raw GeoTIFF bytes; we
+ * parse them here (geotiff.js, bundled by Vite so its ESM deps are fine) and
+ * sample the undulation N live. Orthometric MSL = ellipsoidal height − N.
  */
+import { fromArrayBuffer } from 'geotiff';
 import type { GeoidGrid } from '@shared/ipc';
 
 let grid: GeoidGrid | null = null;
 let loading: Promise<void> | null = null;
 
-/** Fetch + cache the geoid grid from main (once). Safe to call repeatedly. */
+/** Fetch + parse + cache the geoid grid (once). Safe to call repeatedly. */
 export function loadGeoid(): Promise<void> {
   if (grid) return Promise.resolve();
-  if (!loading) {
-    loading = window.api.getGeoidGrid().then((g) => {
-      grid = g;
-    });
-  }
+  if (!loading) loading = doLoad();
   return loading;
+}
+
+async function doLoad(): Promise<void> {
+  try {
+    const bytes = await window.api.getGeoidGrid();
+    if (!bytes) return;
+    const buf = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    const tiff = await fromArrayBuffer(buf);
+    const image = await tiff.getImage();
+    const [originLon, originLat] = image.getOrigin();
+    const [dLon, dLat] = image.getResolution();
+    const rasters = await image.readRasters({ interleave: false });
+    const band = rasters[0] as Float32Array | ArrayLike<number>;
+    grid = {
+      width: image.getWidth(),
+      height: image.getHeight(),
+      originLon,
+      originLat,
+      dLon,
+      dLat,
+      values: band instanceof Float32Array ? band : Float32Array.from(band),
+    };
+  } catch (err) {
+    console.error('[earthy] geoid parse failed:', err);
+  }
 }
 
 /** Geoid undulation N (metres) at lon/lat, or null until the grid has loaded. */

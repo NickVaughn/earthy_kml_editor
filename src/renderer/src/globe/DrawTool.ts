@@ -13,7 +13,6 @@ import {
   KeyboardEventModifier,
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
-import { geoidHeight } from '@renderer/model/geoid';
 import { vertexMarker, HANDLE_SIZE } from './handles';
 
 export type DrawKind = 'Point' | 'LineString' | 'Polygon';
@@ -68,17 +67,10 @@ export class DrawTool {
     );
   }
 
-  /** Lon/lat, plus the sampled terrain elevation when terrain rendering is on.
-   *  KML `<coordinates>` altitude is height above MSL, so store orthometric
-   *  (ellipsoidal − geoid undulation N) when the geoid grid is available; fall
-   *  back to the raw (ellipsoidal) height if it isn't. */
+  /** Lon/lat only — new features are created clamp-to-ground; we never write Z. */
   private cartToPosition(cart: Cartesian3): Position {
     const c = Cartographic.fromCartesian(cart);
-    const lon = CesiumMath.toDegrees(c.longitude);
-    const lat = CesiumMath.toDegrees(c.latitude);
-    if (!this.terrainOn) return [lon, lat];
-    const n = geoidHeight(lon, lat);
-    return [lon, lat, n != null ? c.height - n : c.height];
+    return [CesiumMath.toDegrees(c.longitude), CesiumMath.toDegrees(c.latitude)];
   }
 
   private setCamera(enabled: boolean): void {

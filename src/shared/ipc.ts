@@ -83,8 +83,8 @@ export interface Api {
   hasGoogleKey(): Promise<boolean>;
   /** Raw PNG bytes for a terrain tile; main proxies the remote source (dodges CORS). */
   fetchTerrainTile(sourceId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
-  /** The bundled EGM96 geoid grid (parsed in main), or null if unavailable. */
-  getGeoidGrid(): Promise<GeoidGrid | null>;
+  /** Raw bytes of the bundled EGM96 geoid GeoTIFF; the renderer parses them. */
+  getGeoidGrid(): Promise<Uint8Array | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   getRecentFiles(): Promise<string[]>;

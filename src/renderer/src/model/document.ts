@@ -125,10 +125,13 @@ export class KmlDocument {
 
   /** Effective visibility: false if the node or any ancestor is hidden. */
   isEffectivelyVisible(node: KmlNode): boolean {
-    // Build a parent map lazily is overkill; walk from root tracking ancestry.
-    const path = this.pathTo(node.id);
-    if (!path) return node.visible;
-    return path.every((n) => n.visible);
+    // Walk UP via the parent index — O(depth). Descending from the root instead
+    // (pathTo) is O(nodes) per call, which is O(n²) over a whole document and
+    // shows up as seconds of load time on a large KML.
+    for (let n: KmlNode | null = node; n; n = this.parents.get(n.id) ?? null) {
+      if (!n.visible) return false;
+    }
+    return true;
   }
 
   /** Ancestor chain from root to the node (inclusive), or null if not found. */

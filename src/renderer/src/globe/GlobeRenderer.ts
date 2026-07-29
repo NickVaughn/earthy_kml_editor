@@ -178,11 +178,11 @@ export class GlobeRenderer {
   }
 
   /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid.
-   *  Rebuilds the scene so features re-clamp to (or lift off) the new surface. */
+   *  No rebuild — vector features render flat and don't depend on the surface;
+   *  `terrainOn` only affects the cursor elevation readout and draw-time picking. */
   setTerrain(provider: TerrainProvider | null): void {
     this.viewer.scene.terrainProvider = provider ?? new EllipsoidTerrainProvider();
     this.terrainOn = provider !== null;
-    this.rebuildScene();
   }
 
   // ---- GroundOverlay imagery (single image per overlay, no tiling) ---------
@@ -309,14 +309,44 @@ export class GlobeRenderer {
   private rebuildScene(): void {
     this.scene?.dispose();
     const t0 = performance.now();
-    this.scene = buildScene(this.viewer, this.docs, this.terrainOn);
+    this.scene = buildScene(this.viewer, this.docs);
     const ms = performance.now() - t0;
     const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
+    const s = this.scene.stats;
     console.info(
       `[earthy] scene built: ${features} features (${this.docs.length} doc${
         this.docs.length === 1 ? '' : 's'
-      }) in ${ms.toFixed(0)}ms`,
+      }) in ${ms.toFixed(0)}ms — ${s.fills} fills, ${s.hairlines} hairlines ` +
+        `(${s.hairlinePositions} pts), ${s.wideLines} wide lines (${s.wideLinePositions} pts)`,
     );
+    // Building the scene is only half the story: Cesium turns geometry into GPU
+    // buffers during render, so a build that looks instant can still be followed
+    // by a long freeze. Time the frames until the scene settles.
+    this.timeToSteadyState(t0);
+  }
+
+  /** Log how long after a rebuild the globe actually goes quiet (10 calm frames). */
+  private settleListener: (() => void) | null = null;
+  private timeToSteadyState(t0: number): void {
+    if (this.settleListener) {
+      this.viewer.scene.postRender.removeEventListener(this.settleListener);
+    }
+    let calm = 0;
+    let last = performance.now();
+    const listener = (): void => {
+      const now = performance.now();
+      const frame = now - last;
+      last = now;
+      calm = frame < 32 ? calm + 1 : 0;
+      if (calm < 10) return;
+      this.viewer.scene.postRender.removeEventListener(listener);
+      this.settleListener = null;
+      console.info(
+        `[earthy] globe interactive ${((now - t0) / 1000).toFixed(1)}s after scene build started`,
+      );
+    };
+    this.settleListener = listener;
+    this.viewer.scene.postRender.addEventListener(listener);
   }
 
   setNodeShow(id: string, show: boolean): void {
