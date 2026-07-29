@@ -20,8 +20,15 @@ tiles/
 node_modules/
 dist/
 out/
-build/
 release/
+# build/ is electron-builder's buildResources dir — the app icon lives there and
+# is source, not output. Ignore everything else that lands in it.
+build/*
+!build/make-icon.py
+!build/icon.svg
+!build/icon.png
+!build/icon.ico
+!build/icon.icns
 .vite/
 *.tsbuildinfo
 

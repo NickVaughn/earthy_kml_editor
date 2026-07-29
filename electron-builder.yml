@@ -15,13 +15,16 @@ extraResources:
     to: geoid
 mac:
   category: public.app-category.utilities
+  icon: build/icon.icns
   target:
     - dmg
   identity: null # no code signing for local builds
 win:
+  icon: build/icon.ico
   target:
     - nsis
 linux:
+  icon: build/icon.png
   target:
     - AppImage
 fileAssociations:
