@@ -23,7 +23,9 @@
  *    single constant depth — neighbouring tiles differing by hundreds of metres
  *    turn the sea into a staircase of flat plates. Unless the user asks for the
  *    sea floor we clamp at sea level, so the ocean is a surface (what Google
- *    Earth shows by default).
+ *    Earth shows by default). When they do ask for it, a tile that decodes flat
+ *    is resampled from the nearest ancestor that actually resolves — see
+ *    resolvedSource.
  */
 import {
   Cartesian3,
@@ -48,9 +50,48 @@ const TILE_SRC = 256;
 /** Height samples per side handed to Cesium; a light regular grid per tile. */
 const GRID = 65;
 
+/**
+ * How far up to look for a tile with real detail in it. Off Hawai'i the sea
+ * floor resolves around z13, so three levels covers it with room to spare;
+ * beyond that the source really is flat and the constant value is the answer.
+ */
+const MAX_ANCESTOR_WALK = 5;
+/** Decoded source tiles, so an ancestor shared by many children decodes once. */
+const SOURCE_CACHE_MAX = 192;
+
+/** A decoded source tile: orthometric metres, plus whether it has any relief. */
+interface SourceTile {
+  /** TILE_SRC x TILE_SRC, row-major, north row first. */
+  heights: Float32Array;
+  /** True when every pixel is identical — the source has no data at this zoom. */
+  flat: boolean;
+}
+
+const sourceCache = new Map<string, SourceTile>();
+
 /** Terrarium RGB → metres. */
 function decodeTerrarium(r: number, g: number, b: number): number {
   return r * 256 + g + b / 256 - 32768;
+}
+
+/**
+ * Bilinear sample of a source tile at normalised (u, v), both in [0, 1] across
+ * the tile, v measured from the north edge. Pixel centres sit at (i + 0.5)/N,
+ * hence the half-pixel shift; edges clamp.
+ */
+function sampleSource(tile: SourceTile, u: number, v: number): number {
+  const fx = Math.min(Math.max(u * TILE_SRC - 0.5, 0), TILE_SRC - 1);
+  const fy = Math.min(Math.max(v * TILE_SRC - 0.5, 0), TILE_SRC - 1);
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const x1 = Math.min(x0 + 1, TILE_SRC - 1);
+  const y1 = Math.min(y0 + 1, TILE_SRC - 1);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const h = tile.heights;
+  const top = h[y0 * TILE_SRC + x0] + (h[y0 * TILE_SRC + x1] - h[y0 * TILE_SRC + x0]) * tx;
+  const bot = h[y1 * TILE_SRC + x0] + (h[y1 * TILE_SRC + x1] - h[y1 * TILE_SRC + x0]) * tx;
+  return top + (bot - top) * ty;
 }
 
 // Log the first success and the first failure, so DevTools shows whether terrain
@@ -130,7 +171,12 @@ export class TerrariumTerrainProvider implements TerrainProvider {
     return this.loadTile(x, y, level);
   }
 
-  private async loadTile(x: number, y: number, level: number): Promise<TerrainData> {
+  /** Fetch and decode one source tile, memoised. Throws if the tile is missing. */
+  private async sourceTile(x: number, y: number, level: number): Promise<SourceTile> {
+    const key = `${this._sourceId}/${level}/${x}/${y}`;
+    const hit = sourceCache.get(key);
+    if (hit) return hit;
+
     let bitmap: ImageBitmap;
     try {
       const bytes = await window.api.fetchTerrainTile(this._sourceId, level, x, y);
@@ -145,16 +191,84 @@ export class TerrariumTerrainProvider implements TerrainProvider {
       }
       throw err;
     }
+
+    let tile: SourceTile;
     try {
-      const terrain = this.toTerrain(bitmap, x, y, level);
-      if (!loggedOk) {
-        loggedOk = true;
-        console.info('[earthy] terrain: first tile decoded OK');
+      const { ctx } = scratchCanvas();
+      ctx.clearRect(0, 0, TILE_SRC, TILE_SRC);
+      ctx.drawImage(bitmap, 0, 0, TILE_SRC, TILE_SRC);
+      const { data } = ctx.getImageData(0, 0, TILE_SRC, TILE_SRC);
+      const heights = new Float32Array(TILE_SRC * TILE_SRC);
+      let flat = true;
+      for (let i = 0; i < heights.length; i++) {
+        const p = i * 4;
+        heights[i] = decodeTerrarium(data[p], data[p + 1], data[p + 2]);
+        if (flat && heights[i] !== heights[0]) flat = false;
       }
-      return terrain;
+      tile = { heights, flat };
     } finally {
       bitmap.close();
     }
+
+    // Plain insertion-order eviction; the working set is whatever the camera
+    // is over, so the oldest entry is reliably the least interesting one.
+    if (sourceCache.size >= SOURCE_CACHE_MAX) {
+      const oldest = sourceCache.keys().next().value;
+      if (oldest !== undefined) sourceCache.delete(oldest);
+    }
+    sourceCache.set(key, tile);
+    return tile;
+  }
+
+  /**
+   * The source tile to mesh this tile from, and where this tile sits inside it.
+   *
+   * Normally that is the tile itself. But the sea floor is far coarser than the
+   * deepest zoom: off Kona every z15 ocean tile decodes to one constant depth,
+   * with neighbours hundreds of metres apart, so the sea renders as a staircase
+   * of flat tile-sized plates. When a tile comes back flat we walk up to the
+   * nearest ancestor that isn't and sample its sub-window instead — neighbours
+   * then interpolate across the same data and meet, giving a slope rather than
+   * a step. It also cuts fetches: one z12 ancestor serves 256 z15 tiles.
+   */
+  private async resolvedSource(
+    x: number,
+    y: number,
+    level: number,
+  ): Promise<{ tile: SourceTile; u0: number; v0: number; span: number }> {
+    const tile = await this.sourceTile(x, y, level);
+    if (!this._showBathymetry || !tile.flat) return { tile, u0: 0, v0: 0, span: 1 };
+
+    for (let up = 1; up <= MAX_ANCESTOR_WALK && level - up >= 0; up++) {
+      let ancestor: SourceTile;
+      try {
+        ancestor = await this.sourceTile(x >> up, y >> up, level - up);
+      } catch {
+        break; // ancestor missing: the flat tile we have is the best available
+      }
+      if (!ancestor.flat) {
+        const span = 1 / (1 << up); // this tile's share of the ancestor
+        return {
+          tile: ancestor,
+          u0: (x - ((x >> up) << up)) * span,
+          v0: (y - ((y >> up) << up)) * span,
+          span,
+        };
+      }
+    }
+    // Flat all the way up — an abyssal plain. Keep this tile's own constant
+    // rather than an ancestor's, which may average to a different depth.
+    return { tile, u0: 0, v0: 0, span: 1 };
+  }
+
+  private async loadTile(x: number, y: number, level: number): Promise<TerrainData> {
+    const src = await this.resolvedSource(x, y, level);
+    const terrain = this.toTerrain(src, x, y, level);
+    if (!loggedOk) {
+      loggedOk = true;
+      console.info('[earthy] terrain: first tile decoded OK');
+    }
+    return terrain;
   }
 
   /**
@@ -187,24 +301,24 @@ export class TerrariumTerrainProvider implements TerrainProvider {
     return { lons, lats };
   }
 
-  private toTerrain(image: ImageBitmap, x: number, y: number, level: number): TerrainData {
-    const { ctx } = scratchCanvas();
-    ctx.clearRect(0, 0, TILE_SRC, TILE_SRC);
-    ctx.drawImage(image, 0, 0, TILE_SRC, TILE_SRC);
-    const { data } = ctx.getImageData(0, 0, TILE_SRC, TILE_SRC);
-
+  private toTerrain(
+    src: { tile: SourceTile; u0: number; v0: number; span: number },
+    x: number,
+    y: number,
+    level: number,
+  ): TerrainData {
     const { lons, lats } = this.tileGraticule(x, y, level);
     const heights = new Int16Array(GRID * GRID);
-    const span = TILE_SRC - 1;
     const step = GRID - 1;
     for (let j = 0; j < GRID; j++) {
-      const sy = Math.round((j * span) / step);
+      const v = src.v0 + (src.span * j) / step;
       const lat = lats[j];
       for (let i = 0; i < GRID; i++) {
-        const sx = Math.round((i * span) / step);
-        const p = (sy * TILE_SRC + sx) * 4;
-        // Orthometric (EGM96) metres, as the source encodes them.
-        let h = decodeTerrarium(data[p], data[p + 1], data[p + 2]);
+        const u = src.u0 + (src.span * i) / step;
+        // Orthometric (EGM96) metres, as the source encodes them. Sampled
+        // bilinearly: the 65-node grid is a quarter of the source's resolution,
+        // so averaging beats dropping three pixels in four.
+        let h = sampleSource(src.tile, u, v);
         // Clamp the sea floor away while still in the MSL datum, so "0" here
         // really is sea level rather than the ellipsoid.
         if (!this._showBathymetry && h < 0) h = 0;
