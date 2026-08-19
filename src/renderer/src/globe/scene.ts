@@ -33,6 +33,51 @@ const DEFAULT_LINE = Color.WHITE;
 const DEFAULT_FILL = Color.WHITE.withAlpha(0.5);
 const DEFAULT_POINT = Color.WHITE;
 
+/** Diameter and outline of a plain (icon-less) point marker, in CSS pixels. */
+const DOT_SIZE = 8;
+const DOT_OUTLINE = 1;
+/** Cache of point-marker images, keyed by CSS colour — one atlas entry each. */
+const dotImages = new Map<string, string | null>();
+
+/**
+ * A round point marker drawn to a canvas, as a data URL.
+ *
+ * `PointPrimitive` is the cheap way to draw a dot, but Cesium gives it no
+ * `heightReference` — only billboards, labels and models can clamp. So a point
+ * that has to follow terrain is drawn as a billboard instead, with this as its
+ * image. (Cesium's own `PointVisualizer` makes the same swap.) Rendered at 2x
+ * and scaled back down so it stays crisp on a HiDPI display, and cached per
+ * colour so every point of one colour shares a single texture-atlas entry.
+ */
+function dotImage(color: Color): string | null {
+  const css = color.toCssColorString();
+  const cached = dotImages.get(css);
+  if (cached !== undefined) return cached;
+  const r = 2; // supersample factor
+  const size = (DOT_SIZE + 2 * DOT_OUTLINE) * r;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    // No 2D context to draw into: the caller falls back to an unclamped
+    // PointPrimitive, which is the old behaviour rather than a missing marker.
+    dotImages.set(css, null);
+    return null;
+  }
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = 'black';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, (DOT_SIZE * r) / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = css;
+  ctx.fill();
+  const url = canvas.toDataURL('image/png');
+  dotImages.set(css, url);
+  return url;
+}
+
 /** A handle that can toggle a node's rendered visibility without a rebuild. */
 interface ShowToggle {
   set(show: boolean): void;
@@ -81,9 +126,17 @@ function usesStoredZ(g: { altitudeMode?: string }, hasZ: boolean): boolean {
  * to build and draw; at KML scale (thousands of polygons) it is unusable, so the
  * trade is made in favor of speed and consistency.
  *
- * Consequence: flat geometry does NOT follow terrain. With 3D terrain on, a
- * clamp-to-ground feature sits at sea level and will be partly buried by relief.
- * Only `absolute` features with a Z lift off the ellipsoid.
+ * Exception: points, labels and billboards DO follow terrain, via Cesium's
+ * `heightReference`. That is a per-primitive height lookup against the loaded
+ * terrain, not a classification shadow volume, so it costs nothing like
+ * `GroundPrimitive` and is worth having — an unclamped marker sits at the
+ * ellipsoid, gets buried by any relief above it, and (because the globe does
+ * not depth-test primitives by default) swims across the landscape as the
+ * camera tilts.
+ *
+ * Consequence: lines and polygon fills still do NOT follow terrain. With 3D
+ * terrain on they sit at the ellipsoid and are partly buried by relief. Only
+ * `absolute` features with a Z lift off the ellipsoid.
  */
 export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const primitives = new PrimitiveCollection();
@@ -183,8 +236,10 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       case 'Point': {
         const absolute = usesStoredZ(g, g.coordinates[2] !== undefined);
         const pos = absolute ? geoidCart(g.coordinates) : flatCart(g.coordinates);
-        // Flat everywhere: never CLAMP_TO_GROUND — the position carries the height.
-        const hRef = HeightReference.NONE;
+        // `absolute` carries its own height; everything else clamps to the
+        // terrain surface so it never ends up buried under relief.
+        const hRef = absolute ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND;
+        const clamped = hRef !== HeightReference.NONE;
         accum(node.id, [pos]);
         if (style.icon?.iconHref) {
           const bb = billboards.add({
@@ -199,17 +254,33 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
           });
           addToggle(node.id, { set: (s) => (bb.show = s) });
         } else {
-          const pt = points.add({
-            position: pos,
-            color: kmlToCesium(style.icon?.color, DEFAULT_POINT),
-            pixelSize: 8,
-            outlineColor: Color.BLACK,
-            outlineWidth: 1,
-            show: startVisible,
-            id: node.id,
-            heightReference: hRef,
-          });
-          addToggle(node.id, { set: (s) => (pt.show = s) });
+          const color = kmlToCesium(style.icon?.color, DEFAULT_POINT);
+          // Cesium gives PointPrimitive no heightReference, so a dot that must
+          // follow terrain has to be a billboard instead (see dotImage).
+          const dot = clamped ? dotImage(color) : null;
+          if (dot) {
+            const bb = billboards.add({
+              position: pos,
+              image: dot,
+              scale: 0.5, // the image is drawn at 2x for HiDPI
+              show: startVisible,
+              id: node.id,
+              heightReference: hRef,
+              verticalOrigin: VerticalOrigin.CENTER,
+            });
+            addToggle(node.id, { set: (s) => (bb.show = s) });
+          } else {
+            const pt = points.add({
+              position: pos,
+              color,
+              pixelSize: DOT_SIZE,
+              outlineColor: Color.BLACK,
+              outlineWidth: DOT_OUTLINE,
+              show: startVisible,
+              id: node.id,
+            });
+            addToggle(node.id, { set: (s) => (pt.show = s) });
+          }
         }
         if (node.name) {
           const lbl = labels.add({
