@@ -36,7 +36,7 @@ const DEFAULT_POINT = Color.WHITE;
 /** Diameter and outline of a plain (icon-less) point marker, in CSS pixels. */
 const DOT_SIZE = 8;
 const DOT_OUTLINE = 1;
-/** Cache of point-marker images, keyed by CSS colour — one atlas entry each. */
+/** Point-marker images, keyed by their full appearance — one atlas entry each. */
 const dotImages = new Map<string, string | null>();
 
 /**
@@ -46,15 +46,26 @@ const dotImages = new Map<string, string | null>();
  * `heightReference` — only billboards, labels and models can clamp. So a point
  * that has to follow terrain is drawn as a billboard instead, with this as its
  * image. (Cesium's own `PointVisualizer` makes the same swap.) Rendered at 2x
- * and scaled back down so it stays crisp on a HiDPI display, and cached per
- * colour so every point of one colour shares a single texture-atlas entry.
+ * and scaled back down so it stays crisp on a HiDPI display, and cached by
+ * appearance so every dot that looks alike shares one texture-atlas entry.
+ *
+ * `scale` is the billboard scale that returns it to `pixelSize` on screen.
  */
-function dotImage(color: Color): string | null {
-  const css = color.toCssColorString();
-  const cached = dotImages.get(css);
+export const DOT_SCALE = 0.5; // inverse of the 2x supersample below
+
+export function dotImage(
+  fill: Color,
+  pixelSize = DOT_SIZE,
+  outline: Color = Color.BLACK,
+  outlineWidth = DOT_OUTLINE,
+): string | null {
+  const fillCss = fill.toCssColorString();
+  const outlineCss = outline.toCssColorString();
+  const key = `${fillCss}|${pixelSize}|${outlineCss}|${outlineWidth}`;
+  const cached = dotImages.get(key);
   if (cached !== undefined) return cached;
-  const r = 2; // supersample factor
-  const size = (DOT_SIZE + 2 * DOT_OUTLINE) * r;
+  const r = 2; // supersample factor; DOT_SCALE undoes it
+  const size = (pixelSize + 2 * outlineWidth) * r;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -62,19 +73,19 @@ function dotImage(color: Color): string | null {
   if (!ctx) {
     // No 2D context to draw into: the caller falls back to an unclamped
     // PointPrimitive, which is the old behaviour rather than a missing marker.
-    dotImages.set(css, null);
+    dotImages.set(key, null);
     return null;
   }
   ctx.beginPath();
   ctx.arc(size / 2, size / 2, size / 2, 0, 2 * Math.PI);
-  ctx.fillStyle = 'black';
+  ctx.fillStyle = outlineCss;
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(size / 2, size / 2, (DOT_SIZE * r) / 2, 0, 2 * Math.PI);
-  ctx.fillStyle = css;
+  ctx.arc(size / 2, size / 2, (pixelSize * r) / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = fillCss;
   ctx.fill();
   const url = canvas.toDataURL('image/png');
-  dotImages.set(css, url);
+  dotImages.set(key, url);
   return url;
 }
 
@@ -107,12 +118,41 @@ export interface SceneHandle {
 
 /**
  * A feature renders at its stored altitude only when it explicitly asks to —
- * altitudeMode `absolute` AND a Z present. Everything else renders flat at the
- * ellipsoid (height 0). (KML altitude is MSL; the renderer adds the geoid
- * undulation to reach the ellipsoidal height Cesium positions by.)
+ * altitudeMode `absolute` AND a Z present. Everything else renders at ground
+ * level, which is sea level where there is no terrain under it.
  */
-function usesStoredZ(g: { altitudeMode?: string }, hasZ: boolean): boolean {
+export function usesStoredZ(g: { altitudeMode?: string }, hasZ: boolean): boolean {
   return g.altitudeMode === 'absolute' && hasZ;
+}
+
+/**
+ * Ellipsoidal height for an MSL altitude, which is the datum Cesium positions
+ * in: h = H + N. KML altitudes are orthometric, and so is the terrain (see
+ * globe/terrain.ts), so everything the renderer places goes through here.
+ *
+ * Note height 0 is NOT sea level — it is the ellipsoid, which sits ~19 m below
+ * the sea off Hawai'i and ~30 m above it over California. Placing "flat"
+ * geometry at 0 rather than at N is what put features under the water.
+ *
+ * Guards against a non-finite height ever reaching Cesium's geometry packer.
+ */
+export function ellipsoidalHeight(lon: number, lat: number, mslAltitude: number): number {
+  const h = mslAltitude + (geoidHeight(lon, lat) ?? 0);
+  return Number.isFinite(h) ? h : 0;
+}
+
+/** The MSL altitude a vertex renders at: its own Z if `absolute`, else ground. */
+export function mslAltitudeOf(p: Position, absolute: boolean): number {
+  return absolute ? (p[2] ?? 0) : 0;
+}
+
+/** A vertex at the height the resolver rule gives it. */
+export function renderCart(p: Position, absolute: boolean): Cartesian3 {
+  return Cartesian3.fromDegrees(
+    p[0],
+    p[1],
+    ellipsoidalHeight(p[0], p[1], mslAltitudeOf(p, absolute)),
+  );
 }
 
 /**
@@ -173,14 +213,10 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
 
   const labelCond = new DistanceDisplayCondition(0, 2_000_000);
 
-  // A vertex baked to its ellipsoidal position: MSL altitude + geoid undulation.
-  // Guard against a non-finite height ever reaching Cesium's geometry packer.
-  const geoidCart = (p: Position): Cartesian3 => {
-    const h = (p[2] ?? 0) + (geoidHeight(p[0], p[1]) ?? 0);
-    return Cartesian3.fromDegrees(p[0], p[1], Number.isFinite(h) ? h : 0);
-  };
-  // A vertex flattened to the ellipsoid — how everything but `absolute` renders.
-  const flatCart = (p: Position): Cartesian3 => Cartesian3.fromDegrees(p[0], p[1], 0);
+  // A vertex at its own MSL altitude, and one at sea level. Both go through the
+  // geoid — see ellipsoidalHeight for why sea level is not height 0.
+  const geoidCart = (p: Position): Cartesian3 => renderCart(p, true);
+  const flatCart = (p: Position): Cartesian3 => renderCart(p, false);
 
   /**
    * A plain (non-draped) line at explicit positions.
@@ -262,7 +298,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             const bb = billboards.add({
               position: pos,
               image: dot,
-              scale: 0.5, // the image is drawn at 2x for HiDPI
+              scale: DOT_SCALE,
               show: startVisible,
               id: node.id,
               heightReference: hRef,
@@ -335,8 +371,15 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             new GeometryInstance({
               geometry: new PolygonGeometry({
                 polygonHierarchy: new PolygonHierarchy(outer, holes),
-                // Absolute: honor each baked vertex height. Otherwise flat at 0.
+                // Absolute: honor each baked vertex height. Otherwise one flat
+                // plane — and with perPositionHeight off, PolygonGeometry
+                // ignores the vertex heights and uses `height`, so sea level
+                // has to be passed in explicitly. N varies far more slowly than
+                // a polygon is wide, so one sample for the ring is plenty.
                 perPositionHeight: absolute,
+                height: absolute
+                  ? undefined
+                  : ellipsoidalHeight(g.outerBoundary[0][0], g.outerBoundary[0][1], 0),
               }),
               attributes: {
                 color: ColorGeometryInstanceAttribute.fromColor(

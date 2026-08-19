@@ -10,6 +10,8 @@ import {
   Color,
   PolylineCollection,
   PointPrimitiveCollection,
+  BillboardCollection,
+  HeightReference,
   PrimitiveCollection,
   BoundingSphere,
   HeadingPitchRange,
@@ -26,7 +28,14 @@ import {
 import type { KmlDocument } from '@renderer/model/document';
 import type { Position, Geometry, KmlNode } from '@renderer/model/types';
 import { tiledOverlayInfo, tileUrlTemplate } from '@renderer/model/overlays';
-import { buildScene, type SceneHandle } from './scene';
+import {
+  buildScene,
+  dotImage,
+  ellipsoidalHeight,
+  usesStoredZ,
+  DOT_SCALE,
+  type SceneHandle,
+} from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
 import {
@@ -61,6 +70,8 @@ export class GlobeRenderer {
   private selectionLayer = new PrimitiveCollection();
   private selLines = new PolylineCollection();
   private selPoints = new PointPrimitiveCollection();
+  /** Clamped selection dots; PointPrimitive has no heightReference. */
+  private selBillboards: BillboardCollection | null = null;
   private activeTool: { dispose(): void } | null = null;
   private handlers: GlobeHandlers;
   private baseLayer: ImageryLayer | null = null;
@@ -87,8 +98,10 @@ export class GlobeRenderer {
     });
     this.viewer.scene.globe.showGroundAtmosphere = true;
 
+    this.selBillboards = new BillboardCollection({ scene: this.viewer.scene });
     this.selectionLayer.add(this.selLines);
     this.selectionLayer.add(this.selPoints);
+    this.selectionLayer.add(this.selBillboards);
     this.viewer.scene.primitives.add(this.selectionLayer);
 
     const gl = this.viewer.scene.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
@@ -514,9 +527,15 @@ export class GlobeRenderer {
   }
 
   private drawSelectionGeometry(g: import('@renderer/model/types').Geometry): void {
-    const line = (positions: Position[], close: boolean) => {
+    // The halo has to sit exactly where scene.ts drew the feature, so it follows
+    // the same resolver rule and the same datum — lifted 2 m so it reads as a
+    // highlight rather than z-fighting the geometry it is marking.
+    const LIFT = 2;
+    const height = (p: Position, absolute: boolean) =>
+      ellipsoidalHeight(p[0], p[1], absolute ? (p[2] ?? 0) : 0) + LIFT;
+    const line = (positions: Position[], close: boolean, absolute: boolean) => {
       const carts = positions.map((p) =>
-        Cartesian3.fromDegrees(p[0], p[1], (p[2] ?? 0) + 2),
+        Cartesian3.fromDegrees(p[0], p[1], height(p, absolute)),
       );
       if (close && carts.length > 0) carts.push(carts[0]);
       if (carts.length >= 2) {
@@ -525,26 +544,45 @@ export class GlobeRenderer {
       }
     };
     switch (g.kind) {
-      case 'Point':
-        this.selPoints.add({
-          position: Cartesian3.fromDegrees(
-            g.coordinates[0],
-            g.coordinates[1],
-            (g.coordinates[2] ?? 0) + 2,
-          ),
-          color: SELECT_COLOR,
-          pixelSize: 14,
-          outlineColor: Color.WHITE,
-          outlineWidth: 2,
-        });
+      case 'Point': {
+        const absolute = usesStoredZ(g, g.coordinates[2] !== undefined);
+        const position = Cartesian3.fromDegrees(
+          g.coordinates[0],
+          g.coordinates[1],
+          height(g.coordinates, absolute),
+        );
+        // Match the feature: clamped points are billboards, because Cesium
+        // gives PointPrimitive no heightReference.
+        const dot = absolute ? null : dotImage(SELECT_COLOR, 14, Color.WHITE, 2);
+        if (dot && this.selBillboards) {
+          this.selBillboards.add({
+            position,
+            image: dot,
+            scale: DOT_SCALE,
+            heightReference: HeightReference.CLAMP_TO_GROUND,
+          });
+        } else {
+          this.selPoints.add({
+            position,
+            color: SELECT_COLOR,
+            pixelSize: 14,
+            outlineColor: Color.WHITE,
+            outlineWidth: 2,
+          });
+        }
         break;
-      case 'LineString':
-        line(g.coordinates, false);
+      }
+      case 'LineString': {
+        const absolute = usesStoredZ(g, g.coordinates.some((p) => p[2] !== undefined));
+        line(g.coordinates, false, absolute);
         break;
-      case 'Polygon':
-        line(g.outerBoundary, true);
-        for (const inner of g.innerBoundaries) line(inner, true);
+      }
+      case 'Polygon': {
+        const absolute = usesStoredZ(g, g.outerBoundary.some((p) => p[2] !== undefined));
+        line(g.outerBoundary, true, absolute);
+        for (const inner of g.innerBoundaries) line(inner, true, absolute);
         break;
+      }
       case 'MultiGeometry':
         for (const child of g.geometries) this.drawSelectionGeometry(child);
         break;
@@ -554,6 +592,7 @@ export class GlobeRenderer {
   private clearSelection(): void {
     this.selLines.removeAll();
     this.selPoints.removeAll();
+    this.selBillboards?.removeAll();
   }
 
   destroy(): void {
