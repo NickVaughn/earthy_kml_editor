@@ -109,17 +109,21 @@ export function App(): JSX.Element {
       onSceneBuilt: (stats) => {
         // Say so rather than leaving them to wonder why features sit at sea
         // level and slide when the view tilts.
-        if (stats.drapeSkipped === 'budget') {
-          flash(
-            `${stats.vertices.toLocaleString()} vertices is too many to drape on terrain — ` +
-              'lines and areas are drawn flat at sea level, so relief will bury them.',
-            12000,
-          );
-        } else if (stats.drapeSkipped === 'unsupported') {
+        if (stats.drapeUnsupported) {
           flash(
             'This GPU cannot drape features on terrain (no classification support) — ' +
               'lines and areas are drawn flat at sea level.',
-            12000,
+            20000,
+          );
+        } else if (stats.drapeSkipped.length > 0) {
+          const which = stats.drapeSkipped
+            .map((d) => `${d.label} (${d.vertices.toLocaleString()} vertices)`)
+            .join(', ');
+          flash(
+            `Too large to drape on terrain: ${which}. Lines and areas in ` +
+              `${stats.drapeSkipped.length === 1 ? 'it' : 'them'} are drawn flat at sea ` +
+              'level, so relief will bury them and they will shift as the view tilts.',
+            20000,
           );
         }
       },

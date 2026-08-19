@@ -38,16 +38,19 @@ const DEFAULT_FILL = Color.WHITE.withAlpha(0.5);
 const DEFAULT_POINT = Color.WHITE;
 
 /**
- * Vertex budget above which the scene gives up draping and renders flat.
+ * Vertex budget above which a document gives up draping and renders flat.
  *
  * Draping is classification: Cesium builds a stencil shadow volume per geometry,
  * which is what makes it follow terrain with no heights computed at all — and
  * what makes it cost. The cost tracks vertices. For reference, 191 polygons drape
- * in ~110 ms, an 823k-vertex document in seconds, and a 4.16M-vertex one takes
- * minutes and leaves the app unresponsive. This line keeps ordinary documents
- * correct and the pathological ones usable.
+ * in ~110 ms, an 824k-vertex document in seconds, and a 4.16M-vertex one takes
+ * minutes and leaves the app unresponsive.
+ *
+ * Applied PER DOCUMENT, not to the scene: a scene-wide budget means opening one
+ * oversized file silently drops every other open document to flat, which looks
+ * like a regression in a file that was fine a moment ago.
  */
-const DRAPE_VERTEX_BUDGET = 1_000_000;
+export const DRAPE_VERTEX_BUDGET = 1_000_000;
 
 /** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
 function vertexCount(g: Geometry): number {
@@ -131,10 +134,10 @@ interface ShowToggle {
 export interface SceneStats {
   /** Positions across every geometry — what the drape budget is spent on. */
   vertices: number;
-  /** Whether lines and fills drape on terrain, or render flat at sea level. */
-  draped: boolean;
-  /** Why, when they don't: over budget, or no classification support. */
-  drapeSkipped: 'budget' | 'unsupported' | null;
+  /** Documents rendered flat because they alone exceeded the drape budget. */
+  drapeSkipped: { label: string; vertices: number }[];
+  /** Classification is unavailable on this GPU: nothing can drape at all. */
+  drapeUnsupported: boolean;
   /** Polygons that needed a triangulated fill (<fill>0</fill> ones don't). */
   fills: number;
   /** Lines batched as hairline GPU LINES: 1 vertex per position. */
@@ -153,6 +156,8 @@ export interface SceneHandle {
   /** Cartesian bounding sphere per node id, for flyTo. */
   bounds: Map<string, BoundingSphere>;
   stats: SceneStats;
+  /** Whether this document's lines and fills drape, or render flat at sea level. */
+  isDraped(doc: KmlDocument): boolean;
   /** Toggle a node's visibility across all its primitives. */
   setNodeShow(id: string, show: boolean): void;
   dispose(): void;
@@ -224,22 +229,27 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const groundPrimitives = new PrimitiveCollection();
   viewer.scene.groundPrimitives.add(groundPrimitives);
 
-  // Decide flat vs draped up front: it changes what every geometry builds.
-  let vertices = 0;
-  for (const doc of docs) {
-    for (const node of doc.placemarksUnder()) {
-      if (node.geometry) vertices += vertexCount(node.geometry);
-    }
-  }
+  // Decide flat vs draped up front, per document: it changes what every
+  // geometry builds, and one huge file must not drag the others down with it.
   const supported =
     GroundPrimitive.isSupported(viewer.scene) &&
     GroundPolylinePrimitive.isSupported(viewer.scene);
-  const drapeSkipped: SceneStats['drapeSkipped'] = !supported
-    ? 'unsupported'
-    : vertices > DRAPE_VERTEX_BUDGET
-      ? 'budget'
-      : null;
-  const drape = drapeSkipped === null;
+  const drapeSkipped: SceneStats['drapeSkipped'] = [];
+  const drapedDocs = new Set<KmlDocument>();
+  let vertices = 0;
+  for (const doc of docs) {
+    let n = 0;
+    for (const node of doc.placemarksUnder()) {
+      if (node.geometry) n += vertexCount(node.geometry);
+    }
+    vertices += n;
+    if (!supported) continue;
+    if (n > DRAPE_VERTEX_BUDGET) {
+      drapeSkipped.push({ label: doc.path?.split(/[\\/]/).pop() ?? doc.root.name, vertices: n });
+    } else {
+      drapedDocs.add(doc);
+    }
+  }
 
   const polylines = new PolylineCollection();
   const points = new PointPrimitiveCollection();
@@ -252,8 +262,8 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const groundLineInstances: GeometryInstance[] = [];
   const stats: SceneStats = {
     vertices,
-    draped: drape,
     drapeSkipped,
+    drapeUnsupported: !supported,
     fills: 0,
     hairlines: 0,
     wideLines: 0,
@@ -358,6 +368,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     node: KmlNode,
     g: Geometry,
     startVisible: boolean,
+    drape: boolean,
   ): void {
     const style = doc.styleFor(node);
     switch (g.kind) {
@@ -512,16 +523,17 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         break;
       }
       case 'MultiGeometry':
-        for (const child of g.geometries) addGeometry(doc, node, child, startVisible);
+        for (const child of g.geometries) addGeometry(doc, node, child, startVisible, drape);
         break;
     }
   }
 
   // Walk every open document's placemarks (node ids are globally unique).
   for (const doc of docs) {
+    const drape = drapedDocs.has(doc);
     for (const node of doc.placemarksUnder()) {
       if (!node.geometry) continue;
-      addGeometry(doc, node, node.geometry, doc.isEffectivelyVisible(node));
+      addGeometry(doc, node, node.geometry, doc.isEffectivelyVisible(node), drape);
     }
   }
 
@@ -629,6 +641,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   return {
     bounds,
     stats,
+    isDraped: (doc) => drapedDocs.has(doc),
     setNodeShow(id, show) {
       const arr = toggles.get(id);
       if (arr) for (const t of arr) t.set(show);

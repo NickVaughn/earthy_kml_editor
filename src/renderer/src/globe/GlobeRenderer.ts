@@ -12,6 +12,11 @@ import {
   PointPrimitiveCollection,
   BillboardCollection,
   HeightReference,
+  GeometryInstance,
+  GroundPolylineGeometry,
+  GroundPolylinePrimitive,
+  ColorGeometryInstanceAttribute,
+  PolylineColorAppearance,
   PrimitiveCollection,
   BoundingSphere,
   HeadingPitchRange,
@@ -34,6 +39,7 @@ import {
   ellipsoidalHeight,
   usesStoredZ,
   DOT_SCALE,
+  DRAPE_VERTEX_BUDGET,
   type SceneHandle,
   type SceneStats,
 } from './scene';
@@ -75,6 +81,10 @@ export class GlobeRenderer {
   private selPoints = new PointPrimitiveCollection();
   /** Clamped selection dots; PointPrimitive has no heightReference. */
   private selBillboards: BillboardCollection | null = null;
+  /** Draped selection outlines, for documents whose features drape. */
+  private selGround = new PrimitiveCollection();
+  /** Ground-line instances accumulated while drawing one selection. */
+  private selGroundInstances: GeometryInstance[] = [];
   private activeTool: { dispose(): void } | null = null;
   private handlers: GlobeHandlers;
   private baseLayer: ImageryLayer | null = null;
@@ -105,6 +115,7 @@ export class GlobeRenderer {
     this.selectionLayer.add(this.selLines);
     this.selectionLayer.add(this.selPoints);
     this.selectionLayer.add(this.selBillboards);
+    this.viewer.scene.groundPrimitives.add(this.selGround);
     this.viewer.scene.primitives.add(this.selectionLayer);
 
     const gl = this.viewer.scene.canvas.getContext('webgl2') as WebGL2RenderingContext | null;
@@ -344,14 +355,19 @@ export class GlobeRenderer {
     const ms = performance.now() - t0;
     const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
     const s = this.scene.stats;
-    const mode = s.draped
-      ? `draped (${s.groundFills} fills, ${s.groundLines} lines)`
-      : `flat, drape skipped (${s.drapeSkipped}) — ${s.fills} fills, ${s.hairlines} hairlines ` +
-        `(${s.hairlinePositions} pts), ${s.wideLines} wide lines (${s.wideLinePositions} pts)`;
+    const skipped = s.drapeUnsupported
+      ? 'NO DRAPE (GPU has no classification support)'
+      : s.drapeSkipped.length > 0
+        ? `NOT DRAPED (over ${DRAPE_VERTEX_BUDGET} vertices): ` +
+          s.drapeSkipped.map((d) => `${d.label} (${d.vertices})`).join(', ')
+        : 'all documents draped';
     console.info(
       `[earthy] scene built: ${features} features (${this.docs.length} doc${
         this.docs.length === 1 ? '' : 's'
-      }), ${s.vertices} vertices in ${ms.toFixed(0)}ms — ${mode}`,
+      }), ${s.vertices} vertices in ${ms.toFixed(0)}ms — ${skipped}; ` +
+        `draped ${s.groundFills} fills + ${s.groundLines} lines, ` +
+        `flat ${s.fills} fills + ${s.hairlines} hairlines (${s.hairlinePositions} pts) + ` +
+        `${s.wideLines} wide lines (${s.wideLinePositions} pts)`,
     );
     this.handlers.onSceneBuilt?.(s);
     // Building the scene is only half the story: Cesium turns geometry into GPU
@@ -490,7 +506,21 @@ export class GlobeRenderer {
     for (const id of nodeIds) {
       const node = this.nodeById(id);
       if (!node?.geometry) continue;
-      this.drawSelectionGeometry(node.geometry);
+      // The halo has to render the same way the feature did, or it marks a
+      // spot the feature is not at — draped features sit on the relief while a
+      // flat halo stays at sea level, hundreds of metres below.
+      const doc = this.docs.find((d) => d.nodeById(id));
+      const draped = !!doc && !!this.scene?.isDraped(doc);
+      this.drawSelectionGeometry(node.geometry, draped);
+    }
+    if (this.selGroundInstances.length > 0) {
+      this.selGround.add(
+        new GroundPolylinePrimitive({
+          geometryInstances: this.selGroundInstances,
+          appearance: new PolylineColorAppearance(),
+        }),
+      );
+      this.selGroundInstances = [];
     }
   }
 
@@ -533,7 +563,10 @@ export class GlobeRenderer {
     this.activeTool = null;
   }
 
-  private drawSelectionGeometry(g: import('@renderer/model/types').Geometry): void {
+  private drawSelectionGeometry(
+    g: import('@renderer/model/types').Geometry,
+    draped: boolean,
+  ): void {
     // The halo has to sit exactly where scene.ts drew the feature, so it follows
     // the same resolver rule and the same datum — lifted 2 m so it reads as a
     // highlight rather than z-fighting the geometry it is marking.
@@ -545,10 +578,18 @@ export class GlobeRenderer {
         Cartesian3.fromDegrees(p[0], p[1], height(p, absolute)),
       );
       if (close && carts.length > 0) carts.push(carts[0]);
-      if (carts.length >= 2) {
-        const pl = this.selLines.add({ positions: carts, width: 4 });
-        pl.material = Material.fromType('Color', { color: SELECT_COLOR });
+      if (carts.length < 2) return;
+      if (draped && !absolute) {
+        this.selGroundInstances.push(
+          new GeometryInstance({
+            geometry: new GroundPolylineGeometry({ positions: carts, width: 4 }),
+            attributes: { color: ColorGeometryInstanceAttribute.fromColor(SELECT_COLOR) },
+          }),
+        );
+        return;
       }
+      const pl = this.selLines.add({ positions: carts, width: 4 });
+      pl.material = Material.fromType('Color', { color: SELECT_COLOR });
     };
     switch (g.kind) {
       case 'Point': {
@@ -591,7 +632,7 @@ export class GlobeRenderer {
         break;
       }
       case 'MultiGeometry':
-        for (const child of g.geometries) this.drawSelectionGeometry(child);
+        for (const child of g.geometries) this.drawSelectionGeometry(child, draped);
         break;
     }
   }
@@ -600,6 +641,8 @@ export class GlobeRenderer {
     this.selLines.removeAll();
     this.selPoints.removeAll();
     this.selBillboards?.removeAll();
+    this.selGround.removeAll();
+    this.selGroundInstances = [];
   }
 
   destroy(): void {
