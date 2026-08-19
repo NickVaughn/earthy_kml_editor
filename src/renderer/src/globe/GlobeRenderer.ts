@@ -608,6 +608,8 @@ export class GlobeRenderer {
             image: dot,
             scale: DOT_SCALE,
             heightReference: HeightReference.CLAMP_TO_GROUND,
+            // Same as the marker it highlights: never fight the ground it is on.
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
           });
         } else {
           this.selPoints.add({

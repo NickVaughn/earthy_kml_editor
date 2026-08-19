@@ -57,3 +57,26 @@ export function tileMarkerExtendedData(marker: TileMarker): {
 export function tileUrlTemplate(hash: string): string {
   return `earthy-tiles://${hash}/{z}/{x}/{y}.png`;
 }
+
+/**
+ * Where to actually load a point icon from, or null if it cannot be loaded —
+ * callers should draw a plain marker rather than nothing.
+ *
+ * Two things bite here. KMZ-embedded icons are relative paths that only exist
+ * inside the archive, so they have to come from the document's extracted
+ * `resources`. And KML written by Google Earth references icons over plain
+ * `http://`, which the app's CSP (`img-src … https:`) blocks outright — that is
+ * 562 of the 578 markers in a My Places export silently missing. Those hosts
+ * serve the same path over https, and one that did not was already blocked, so
+ * upgrading the scheme costs nothing and fixes the common case.
+ */
+export function iconUrl(
+  resources: Record<string, string>,
+  href: string,
+): string | null {
+  const embedded = resources[href];
+  if (embedded) return embedded;
+  if (/^http:\/\//i.test(href)) return `https://${href.slice(7)}`;
+  if (/^(https:|data:|blob:)/i.test(href)) return href;
+  return null; // a relative path with nothing left to resolve it against
+}

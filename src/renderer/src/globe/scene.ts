@@ -30,6 +30,7 @@ import {
 import type { KmlDocument } from '@renderer/model/document';
 import type { KmlNode, Geometry, Position } from '@renderer/model/types';
 import { geoidHeight } from '@renderer/model/geoid';
+import { iconUrl } from '@renderer/model/overlays';
 import { kmlToCesium } from './cesiumColor';
 
 // Defaults for features without an explicit style (configurable later).
@@ -379,16 +380,23 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         // terrain surface so it never ends up buried under relief.
         const hRef = absolute ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND;
         const clamped = hRef !== HeightReference.NONE;
+        // A marker sits ON the ground, so the only thing that can occlude it is
+        // the ground it is glued to — a depth tie the buffer resolves per pixel
+        // and per camera angle, which reads as markers flickering out as the
+        // view tilts. Opt clamped ones out of the depth test entirely.
+        const noDepth = clamped ? Number.POSITIVE_INFINITY : 0;
         accum(node.id, [pos]);
-        if (style.icon?.iconHref) {
+        const icon = style.icon?.iconHref ? iconUrl(doc.resources, style.icon.iconHref) : null;
+        if (icon) {
           const bb = billboards.add({
             position: pos,
-            image: style.icon.iconHref,
-            scale: style.icon.scale ?? 1,
-            color: kmlToCesium(style.icon.color, Color.WHITE),
+            image: icon,
+            scale: style.icon?.scale ?? 1,
+            color: kmlToCesium(style.icon?.color, Color.WHITE),
             show: startVisible,
             id: node.id,
             heightReference: hRef,
+            disableDepthTestDistance: noDepth,
             verticalOrigin: VerticalOrigin.BOTTOM,
           });
           addToggle(node.id, { set: (s) => (bb.show = s) });
@@ -405,6 +413,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
               show: startVisible,
               id: node.id,
               heightReference: hRef,
+              disableDepthTestDistance: noDepth,
               verticalOrigin: VerticalOrigin.CENTER,
             });
             addToggle(node.id, { set: (s) => (bb.show = s) });
@@ -437,6 +446,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             show: startVisible,
             id: node.id,
             heightReference: hRef,
+            disableDepthTestDistance: noDepth,
           });
           addToggle(node.id, { set: (s) => (lbl.show = s) });
         }
