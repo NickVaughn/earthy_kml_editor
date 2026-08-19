@@ -9,6 +9,10 @@ import {
   PerInstanceColorAppearance,
   ColorGeometryInstanceAttribute,
   ShowGeometryInstanceAttribute,
+  GroundPrimitive,
+  GroundPolylinePrimitive,
+  GroundPolylineGeometry,
+  PolylineColorAppearance,
   PolylineCollection,
   PointPrimitiveCollection,
   BillboardCollection,
@@ -32,6 +36,35 @@ import { kmlToCesium } from './cesiumColor';
 const DEFAULT_LINE = Color.WHITE;
 const DEFAULT_FILL = Color.WHITE.withAlpha(0.5);
 const DEFAULT_POINT = Color.WHITE;
+
+/**
+ * Vertex budget above which the scene gives up draping and renders flat.
+ *
+ * Draping is classification: Cesium builds a stencil shadow volume per geometry,
+ * which is what makes it follow terrain with no heights computed at all — and
+ * what makes it cost. The cost tracks vertices. For reference, 191 polygons drape
+ * in ~110 ms, an 823k-vertex document in seconds, and a 4.16M-vertex one takes
+ * minutes and leaves the app unresponsive. This line keeps ordinary documents
+ * correct and the pathological ones usable.
+ */
+const DRAPE_VERTEX_BUDGET = 1_000_000;
+
+/** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
+function vertexCount(g: Geometry): number {
+  switch (g.kind) {
+    case 'Point':
+      return 1;
+    case 'LineString':
+      return g.coordinates.length;
+    case 'Polygon':
+      return (
+        g.outerBoundary.length +
+        g.innerBoundaries.reduce((n, ring) => n + ring.length, 0)
+      );
+    case 'MultiGeometry':
+      return g.geometries.reduce((n, child) => n + vertexCount(child), 0);
+  }
+}
 
 /** Diameter and outline of a plain (icon-less) point marker, in CSS pixels. */
 const DOT_SIZE = 8;
@@ -96,6 +129,12 @@ interface ShowToggle {
 
 /** What the scene actually put on the GPU — the numbers that explain load time. */
 export interface SceneStats {
+  /** Positions across every geometry — what the drape budget is spent on. */
+  vertices: number;
+  /** Whether lines and fills drape on terrain, or render flat at sea level. */
+  draped: boolean;
+  /** Why, when they don't: over budget, or no classification support. */
+  drapeSkipped: 'budget' | 'unsupported' | null;
   /** Polygons that needed a triangulated fill (<fill>0</fill> ones don't). */
   fills: number;
   /** Lines batched as hairline GPU LINES: 1 vertex per position. */
@@ -105,6 +144,9 @@ export interface SceneStats {
   /** Positions on each of those paths. */
   hairlinePositions: number;
   wideLinePositions: number;
+  /** Draped counterparts: classification fills and lines. */
+  groundFills: number;
+  groundLines: number;
 }
 
 export interface SceneHandle {
@@ -158,29 +200,46 @@ export function renderCart(p: Position, absolute: boolean): Cartesian3 {
 /**
  * Build the batched Cesium scene for the open documents.
  *
- * Everything renders as a flat, non-classification primitive: one batched
- * `Primitive` for polygon fills, one `PolylineCollection` for lines and polygon
- * outlines, `heightReference: NONE` for points/labels/billboards. Draped
- * (classification) rendering — `GroundPrimitive` / `GroundPolylinePrimitive` —
- * builds a per-feature stencil shadow volume and costs orders of magnitude more
- * to build and draw; at KML scale (thousands of polygons) it is unusable, so the
- * trade is made in favor of speed and consistency.
+ * Points, labels and billboards follow terrain via `heightReference`, a cheap
+ * per-primitive height lookup. Lines and polygon fills follow it by draping —
+ * `GroundPolylinePrimitive` and `GroundPrimitive`, Cesium's classification
+ * primitives, which project the geometry onto the surface on the GPU. Draping
+ * needs no heights at all: stored Z is ignored, nothing is sampled, nothing is
+ * downloaded, and the result stays right as terrain refines.
  *
- * Exception: points, labels and billboards DO follow terrain, via Cesium's
- * `heightReference`. That is a per-primitive height lookup against the loaded
- * terrain, not a classification shadow volume, so it costs nothing like
- * `GroundPrimitive` and is worth having — an unclamped marker sits at the
- * ellipsoid, gets buried by any relief above it, and (because the globe does
- * not depth-test primitives by default) swims across the landscape as the
- * camera tilts.
+ * What it costs is build time — a stencil shadow volume per geometry, scaling
+ * with vertices — so past DRAPE_VERTEX_BUDGET the scene falls back to flat
+ * primitives at sea level and reports that it did. Flat geometry does not
+ * follow terrain: it is buried by relief, and because the globe does not
+ * depth-test primitives by default it also appears to swim across the landscape
+ * as the camera tilts.
  *
- * Consequence: lines and polygon fills still do NOT follow terrain. With 3D
- * terrain on they sit at the ellipsoid and are partly buried by relief. Only
- * `absolute` features with a Z lift off the ellipsoid.
+ * `absolute` features are never draped — they have a real altitude to honour.
  */
 export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const primitives = new PrimitiveCollection();
   viewer.scene.primitives.add(primitives);
+  // Classification primitives live in their own collection, rendered in the
+  // globe's classification pass rather than with ordinary primitives.
+  const groundPrimitives = new PrimitiveCollection();
+  viewer.scene.groundPrimitives.add(groundPrimitives);
+
+  // Decide flat vs draped up front: it changes what every geometry builds.
+  let vertices = 0;
+  for (const doc of docs) {
+    for (const node of doc.placemarksUnder()) {
+      if (node.geometry) vertices += vertexCount(node.geometry);
+    }
+  }
+  const supported =
+    GroundPrimitive.isSupported(viewer.scene) &&
+    GroundPolylinePrimitive.isSupported(viewer.scene);
+  const drapeSkipped: SceneStats['drapeSkipped'] = !supported
+    ? 'unsupported'
+    : vertices > DRAPE_VERTEX_BUDGET
+      ? 'budget'
+      : null;
+  const drape = drapeSkipped === null;
 
   const polylines = new PolylineCollection();
   const points = new PointPrimitiveCollection();
@@ -189,12 +248,19 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
 
   const polygonInstances: GeometryInstance[] = [];
   const lineInstances: GeometryInstance[] = []; // hairline lines, batched as GPU LINES
+  const groundPolygonInstances: GeometryInstance[] = [];
+  const groundLineInstances: GeometryInstance[] = [];
   const stats: SceneStats = {
+    vertices,
+    draped: drape,
+    drapeSkipped,
     fills: 0,
     hairlines: 0,
     wideLines: 0,
     hairlinePositions: 0,
     wideLinePositions: 0,
+    groundFills: 0,
+    groundLines: 0,
   };
   const bounds = new Map<string, BoundingSphere>();
   const toggles = new Map<string, ShowToggle[]>();
@@ -230,6 +296,32 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
    * main-thread work, versus 78 MB built in a worker. So only pay it when the
    * style actually asks for a thick line.
    */
+  /**
+   * A line draped on the surface. Positions are a footprint only — Cesium
+   * classifies against whatever terrain is loaded, so heights are ignored.
+   * Segments follow geodesics, the default, because a draped line should track
+   * the surface rather than cut a chord across it.
+   */
+  const groundLine = (
+    positions: Cartesian3[],
+    width: number,
+    color: Color,
+    id: string,
+    show: boolean,
+  ): void => {
+    stats.groundLines++;
+    groundLineInstances.push(
+      new GeometryInstance({
+        geometry: new GroundPolylineGeometry({ positions, width }),
+        attributes: {
+          color: ColorGeometryInstanceAttribute.fromColor(color),
+          show: new ShowGeometryInstanceAttribute(show),
+        },
+        id,
+      }),
+    );
+  };
+
   const bakedLine = (
     positions: Cartesian3[],
     width: number,
@@ -348,7 +440,8 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         const absolute = usesStoredZ(g, g.coordinates.some((p) => p[2] !== undefined));
         const carts = g.coordinates.map(absolute ? geoidCart : flatCart);
         accum(node.id, carts);
-        bakedLine(carts, width, color, node.id, startVisible);
+        if (drape && !absolute) groundLine(carts, width, color, node.id, startVisible);
+        else bakedLine(carts, width, color, node.id, startVisible);
         break;
       }
       case 'Polygon': {
@@ -365,40 +458,56 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         // and a vertex buffer per polygon for something nobody can see — on an
         // outline-only dataset that is the entire load time.
         if (style.poly?.fill !== false) {
-          stats.fills++;
           const holes = g.innerBoundaries.map((r) => new PolygonHierarchy(r.map(toCart)));
-          polygonInstances.push(
-            new GeometryInstance({
-              geometry: new PolygonGeometry({
-                polygonHierarchy: new PolygonHierarchy(outer, holes),
-                // Absolute: honor each baked vertex height. Otherwise one flat
-                // plane — and with perPositionHeight off, PolygonGeometry
-                // ignores the vertex heights and uses `height`, so sea level
-                // has to be passed in explicitly. N varies far more slowly than
-                // a polygon is wide, so one sample for the ring is plenty.
-                perPositionHeight: absolute,
-                height: absolute
-                  ? undefined
-                  : ellipsoidalHeight(g.outerBoundary[0][0], g.outerBoundary[0][1], 0),
-              }),
-              attributes: {
-                color: ColorGeometryInstanceAttribute.fromColor(
-                  kmlToCesium(style.poly?.color, DEFAULT_FILL),
-                ),
-                show: new ShowGeometryInstanceAttribute(startVisible),
-              },
-              id: node.id,
-            }),
+          const hierarchy = new PolygonHierarchy(outer, holes);
+          const fillColor = ColorGeometryInstanceAttribute.fromColor(
+            kmlToCesium(style.poly?.color, DEFAULT_FILL),
           );
+          if (drape && !absolute) {
+            stats.groundFills++;
+            groundPolygonInstances.push(
+              new GeometryInstance({
+                // No height: GroundPrimitive uses the footprint and classifies
+                // against the surface.
+                geometry: new PolygonGeometry({ polygonHierarchy: hierarchy }),
+                attributes: {
+                  color: fillColor,
+                  show: new ShowGeometryInstanceAttribute(startVisible),
+                },
+                id: node.id,
+              }),
+            );
+          } else {
+            stats.fills++;
+            polygonInstances.push(
+              new GeometryInstance({
+                geometry: new PolygonGeometry({
+                  polygonHierarchy: hierarchy,
+                  // Absolute: honor each baked vertex height. Otherwise one flat
+                  // plane — and with perPositionHeight off, PolygonGeometry
+                  // ignores the vertex heights and uses `height`, so sea level
+                  // has to be passed in explicitly. N varies far more slowly
+                  // than a polygon is wide, so one sample per ring is plenty.
+                  perPositionHeight: absolute,
+                  height: absolute
+                    ? undefined
+                    : ellipsoidalHeight(g.outerBoundary[0][0], g.outerBoundary[0][1], 0),
+                }),
+                attributes: {
+                  color: fillColor,
+                  show: new ShowGeometryInstanceAttribute(startVisible),
+                },
+                id: node.id,
+              }),
+            );
+          }
         }
         if (style.poly?.outline !== false) {
-          bakedLine(
-            [...outer, outer[0]],
-            style.line?.width ?? 1,
-            kmlToCesium(style.line?.color, DEFAULT_LINE),
-            node.id,
-            startVisible,
-          );
+          const ring = [...outer, outer[0]];
+          const w = style.line?.width ?? 1;
+          const c = kmlToCesium(style.line?.color, DEFAULT_LINE);
+          if (drape && !absolute) groundLine(ring, w, c, node.id, startVisible);
+          else bakedLine(ring, w, c, node.id, startVisible);
         }
         break;
       }
@@ -461,6 +570,52 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
+  // The draped counterparts: one classification primitive each, in the ground
+  // collection. Show toggles work the same way — per-instance attributes.
+  let groundPolygonPrimitive: GroundPrimitive | null = null;
+  if (groundPolygonInstances.length > 0) {
+    groundPolygonPrimitive = new GroundPrimitive({
+      geometryInstances: groundPolygonInstances,
+      // GroundPrimitive defaults to no appearance at all; KML fills are usually
+      // translucent, so say so explicitly as the pre-Phase-5 code did.
+      appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
+      releaseGeometryInstances: false,
+      asynchronous: groundPolygonInstances.length > 200,
+    });
+    groundPrimitives.add(groundPolygonPrimitive);
+    for (const inst of groundPolygonInstances) {
+      const id = inst.id as string;
+      addToggle(id, {
+        set: (sh) => {
+          if (!groundPolygonPrimitive || !groundPolygonPrimitive.ready) return;
+          const attr = groundPolygonPrimitive.getGeometryInstanceAttributes(id);
+          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
+        },
+      });
+    }
+  }
+
+  let groundLinePrimitive: GroundPolylinePrimitive | null = null;
+  if (groundLineInstances.length > 0) {
+    groundLinePrimitive = new GroundPolylinePrimitive({
+      geometryInstances: groundLineInstances,
+      appearance: new PolylineColorAppearance(),
+      releaseGeometryInstances: false,
+      asynchronous: groundLineInstances.length > 200,
+    });
+    groundPrimitives.add(groundLinePrimitive);
+    for (const inst of groundLineInstances) {
+      const id = inst.id as string;
+      addToggle(id, {
+        set: (sh) => {
+          if (!groundLinePrimitive || !groundLinePrimitive.ready) return;
+          const attr = groundLinePrimitive.getGeometryInstanceAttributes(id);
+          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
+        },
+      });
+    }
+  }
+
   primitives.add(polylines);
   primitives.add(points);
   primitives.add(billboards);
@@ -480,6 +635,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     },
     dispose() {
       viewer.scene.primitives.remove(primitives); // destroys children
+      viewer.scene.groundPrimitives.remove(groundPrimitives);
     },
   };
 }

@@ -106,6 +106,23 @@ export function App(): JSX.Element {
         const msl = height != null && n != null ? height - n : null;
         useStore.getState().setCursor(lon, lat, height, msl);
       },
+      onSceneBuilt: (stats) => {
+        // Say so rather than leaving them to wonder why features sit at sea
+        // level and slide when the view tilts.
+        if (stats.drapeSkipped === 'budget') {
+          flash(
+            `${stats.vertices.toLocaleString()} vertices is too many to drape on terrain — ` +
+              'lines and areas are drawn flat at sea level, so relief will bury them.',
+            12000,
+          );
+        } else if (stats.drapeSkipped === 'unsupported') {
+          flash(
+            'This GPU cannot drape features on terrain (no classification support) — ' +
+              'lines and areas are drawn flat at sea level.',
+            12000,
+          );
+        }
+      },
       onContextMenu: (id, x, y) => {
         if (!id) {
           setFeatureMenu(null);

@@ -35,6 +35,7 @@ import {
   usesStoredZ,
   DOT_SCALE,
   type SceneHandle,
+  type SceneStats,
 } from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
@@ -50,6 +51,8 @@ export interface GlobeHandlers {
   /** Right-click / option-click on a feature (nodeId null = empty globe).
    * x/y are viewport (client) coordinates for positioning a menu. */
   onContextMenu: (nodeId: string | null, x: number, y: number) => void;
+  /** A rebuild finished. `drapeSkipped` says why lines/fills are not on terrain. */
+  onSceneBuilt?: (stats: SceneStats) => void;
 }
 
 const SELECT_COLOR = Color.fromCssColorString('#00e5ff');
@@ -341,12 +344,16 @@ export class GlobeRenderer {
     const ms = performance.now() - t0;
     const features = this.docs.reduce((n, d) => n + d.stats().features, 0);
     const s = this.scene.stats;
+    const mode = s.draped
+      ? `draped (${s.groundFills} fills, ${s.groundLines} lines)`
+      : `flat, drape skipped (${s.drapeSkipped}) — ${s.fills} fills, ${s.hairlines} hairlines ` +
+        `(${s.hairlinePositions} pts), ${s.wideLines} wide lines (${s.wideLinePositions} pts)`;
     console.info(
       `[earthy] scene built: ${features} features (${this.docs.length} doc${
         this.docs.length === 1 ? '' : 's'
-      }) in ${ms.toFixed(0)}ms — ${s.fills} fills, ${s.hairlines} hairlines ` +
-        `(${s.hairlinePositions} pts), ${s.wideLines} wide lines (${s.wideLinePositions} pts)`,
+      }), ${s.vertices} vertices in ${ms.toFixed(0)}ms — ${mode}`,
     );
+    this.handlers.onSceneBuilt?.(s);
     // Building the scene is only half the story: Cesium turns geometry into GPU
     // buffers during render, so a build that looks instant can still be followed
     // by a long freeze. Time the frames until the scene settles.
