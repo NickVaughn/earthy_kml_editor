@@ -178,11 +178,26 @@ export class GlobeRenderer {
   }
 
   /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid.
-   *  No rebuild — vector features render flat and don't depend on the surface;
-   *  `terrainOn` only affects the cursor elevation readout and draw-time picking. */
+   *  No rebuild — lines and fills render flat and don't depend on the surface, and
+   *  points/labels clamp themselves via `heightReference`. `terrainOn` only affects
+   *  the cursor elevation readout and draw-time picking. */
   setTerrain(provider: TerrainProvider | null): void {
     this.viewer.scene.terrainProvider = provider ?? new EllipsoidTerrainProvider();
     this.terrainOn = provider !== null;
+  }
+
+  /**
+   * Whether relief occludes vector features.
+   *
+   * Cesium's default is `false`: features draw on top of terrain whatever their
+   * height. That keeps a flat feature visible under a hillside, but its screen
+   * position still comes from its buried 3D point, so it appears to slide across
+   * the landscape as the camera tilts. `true` hides it instead. Only meaningful
+   * with terrain on — against a flat ellipsoid it would just z-fight geometry
+   * that sits at height 0.
+   */
+  setDepthTestAgainstTerrain(on: boolean): void {
+    this.viewer.scene.globe.depthTestAgainstTerrain = on;
   }
 
   // ---- GroundOverlay imagery (single image per overlay, no tiling) ---------

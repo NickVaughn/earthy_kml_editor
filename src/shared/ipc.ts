@@ -50,6 +50,18 @@ export interface AppSettings {
   render3DTerrain: boolean;
   /** Id of the active terrain source (see shared/terrain.ts). */
   activeTerrainId: string;
+  /**
+   * Render the terrain source's sea floor. Off (the default) clamps the ocean
+   * at sea level, because the source bathymetry is far coarser than the deepest
+   * zoom and decodes to a staircase of flat, tile-sized plates.
+   */
+  showBathymetry: boolean;
+  /**
+   * Let terrain occlude vector features. Off (Cesium's default) draws them on
+   * top of relief, so a flat feature under a hillside stays visible but appears
+   * to slide across it as the camera tilts.
+   */
+  depthTestAgainstTerrain: boolean;
 }
 
 /** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */

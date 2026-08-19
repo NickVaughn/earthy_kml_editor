@@ -141,8 +141,10 @@ export function App(): JSX.Element {
       useStore.getState().setSettings(settings);
       useStore.getState().setHasGoogleKey(hasKey);
       await applyBasemap(settings.basemap);
+      // Before the terrain: tiles bake the geoid undulation in at decode time,
+      // so any tile decoded before the grid parses would keep the wrong datum.
+      await loadGeoid();
       applyTerrain(settings);
-      void loadGeoid();
     })();
   }, []);
 
@@ -168,9 +170,16 @@ export function App(): JSX.Element {
   }, []);
 
   const applyTerrain = useCallback((s: AppSettings) => {
-    globeRef.current?.setTerrain(
-      s.render3DTerrain ? terrainProviderFor(s.activeTerrainId) : null,
+    const globe = globeRef.current;
+    if (!globe) return;
+    globe.setTerrain(
+      s.render3DTerrain
+        ? terrainProviderFor(s.activeTerrainId, { showBathymetry: s.showBathymetry })
+        : null,
     );
+    // Only occlude against real relief; against the flat ellipsoid it would
+    // fight the features that sit at height 0.
+    globe.setDepthTestAgainstTerrain(s.render3DTerrain && s.depthTestAgainstTerrain);
   }, []);
 
   // ---- terrain: apply enable / active-source changes from the Terrain menu -

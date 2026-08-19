@@ -7,6 +7,8 @@ const DEFAULTS: AppSettings = {
   customXyzUrl: '',
   render3DTerrain: false,
   activeTerrainId: 'aws-terrarium',
+  showBathymetry: false,
+  depthTestAgainstTerrain: false,
 };
 
 interface Schema {

@@ -207,6 +207,30 @@ function buildMenu(): void {
         buildMenu();
       },
     },
+    {
+      label: 'Show sea floor (bathymetry)',
+      type: 'checkbox',
+      checked: settings.showBathymetry,
+      enabled: settings.render3DTerrain,
+      click: () => {
+        const next = setSettings({ showBathymetry: !getSettings().showBathymetry });
+        sendTerrain(next);
+        buildMenu();
+      },
+    },
+    {
+      label: 'Hide features under terrain',
+      type: 'checkbox',
+      checked: settings.depthTestAgainstTerrain,
+      enabled: settings.render3DTerrain,
+      click: () => {
+        const next = setSettings({
+          depthTestAgainstTerrain: !getSettings().depthTestAgainstTerrain,
+        });
+        sendTerrain(next);
+        buildMenu();
+      },
+    },
     { type: 'separator' },
     ...BUILTIN_TERRAIN.map(
       (s): MenuItemConstructorOptions => ({
