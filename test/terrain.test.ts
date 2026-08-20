@@ -76,3 +76,36 @@ describe('void repair', () => {
     expect(h[15 * 16 + 15]).toBeCloseTo(25, 5);
   });
 });
+
+describe('gradient-seeded void repair (no sentinel present)', () => {
+  it('fills a garbage gouge cut into a cliff coast', () => {
+    // Measured off South Kona (tile 15/2194/14595): -3800..-5073 directly
+    // against a +150 m cliff top, with not one pixel at the -32768 sentinel.
+    const h = grid(16, () => 150);
+    h[8 * 16 + 8] = -5000;
+    h[8 * 16 + 9] = -3800;
+    h[8 * 16 + 10] = -800; // ramp of the same gouge, floods via suspect depth
+    expect(repairVoids(h, 16)).toBeGreaterThan(0);
+    expect(Math.min(...h)).toBeGreaterThan(-500);
+    expect(h[8 * 16 + 8]).toBeCloseTo(150, 3);
+  });
+
+  it('leaves a coherent coarse-bathymetry plate alone', () => {
+    // A constant negative plate against land is wrong-but-smooth source data:
+    // its interior has no gradient and its shore edge is far below the bar.
+    const h = grid(16, (x) => (x < 8 ? 50 : -153));
+    expect(repairVoids(h, 16)).toBe(0);
+  });
+
+  it('leaves a genuinely steep real coast alone', () => {
+    // +200 m cliff straight into -300 m water: sharp, but physically possible
+    // and below both the suspect depth's gradient trigger and the sentinel.
+    const h = grid(16, (x) => (x < 8 ? 200 : -300));
+    expect(repairVoids(h, 16)).toBe(0);
+  });
+
+  it('leaves smooth deep bathymetry alone', () => {
+    const h = grid(16, (x, y) => -1200 - 40 * x - 25 * y);
+    expect(repairVoids(h, 16)).toBe(0);
+  });
+});

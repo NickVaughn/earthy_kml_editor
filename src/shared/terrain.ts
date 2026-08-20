@@ -66,6 +66,15 @@ const VOID_SUSPECT_HEIGHT = -500;
 const VOID_MAX_FRACTION = 0.25;
 /** Neighbour-averaging passes used to grow valid data back over a void. */
 const VOID_FILL_PASSES = 32;
+/**
+ * A jump this large between ADJACENT samples is not topography. At z15 a
+ * sample step is ~30 m of ground, and no coast on Earth drops a kilometre in
+ * 30 m — the steepest real escarpments manage ~45°. Off South Kona the source
+ * carries a gouge of -3800..-5073 directly against a +150 m cliff top (no
+ * sentinel pixels at all), which rendered as a 5 km pit with bathymetry on.
+ * The gouge announces itself by its edges.
+ */
+const VOID_GRADIENT = 1000;
 
 /**
  * Repair decoder voids in a decoded tile, in place. Returns how many samples
@@ -84,8 +93,26 @@ export function repairVoids(h: Float32Array, width = TILE_SRC): number {
   const height = n / width;
   const bad = new Uint8Array(n);
   let count = 0;
+  // Seed on samples that cannot be real: deeper than any ocean, or anomalously
+  // deep with a physically impossible jump to a neighbour (see VOID_GRADIENT).
+  // A coherent plate of coarse bathymetry is neither — its interior is smooth
+  // and its shoreline edge, though sharp, stays well under the gradient bar —
+  // so wrong-but-smooth source data is left alone.
   for (let i = 0; i < n; i++) {
     if (h[i] < MIN_VALID_HEIGHT) {
+      bad[i] = 1;
+      count++;
+      continue;
+    }
+    if (h[i] >= VOID_SUSPECT_HEIGHT) continue;
+    const x = i % width;
+    const y = (i / width) | 0;
+    if (
+      (x > 0 && h[i - 1] - h[i] > VOID_GRADIENT) ||
+      (x < width - 1 && h[i + 1] - h[i] > VOID_GRADIENT) ||
+      (y > 0 && h[i - width] - h[i] > VOID_GRADIENT) ||
+      (y < height - 1 && h[i + width] - h[i] > VOID_GRADIENT)
+    ) {
       bad[i] = 1;
       count++;
     }
