@@ -48,6 +48,17 @@ export const BASEMAPS: BasemapDef[] = [
     },
   },
   {
+    id: 'ion-night',
+    label: 'Earth at Night (ion key)',
+    needsIonKey: true,
+    build: async () => {
+      const token = await window.api.getIonToken();
+      if (!token) throw new Error('Cesium ion token not configured');
+      // Asset 3812 = NASA Black Marble, ion-hosted (streams on any account).
+      return IonImageryProvider.fromAssetId(3812, { accessToken: token });
+    },
+  },
+  {
     id: 'esri',
     label: 'Esri World Imagery',
     build: () =>
@@ -68,7 +79,7 @@ export const BASEMAPS: BasemapDef[] = [
   },
   {
     id: 'google-satellite',
-    label: 'Google Satellite',
+    label: 'Google Hybrid',
     needsGoogleKey: true,
     build: () => google('satellite'),
   },
