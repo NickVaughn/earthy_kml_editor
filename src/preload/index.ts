@@ -12,6 +12,12 @@ const api: Api = {
     ipcRenderer.invoke('get-google-tile-template', session),
   hasGoogleKey: () => ipcRenderer.invoke('has-google-key'),
   getIonToken: () => ipcRenderer.invoke('get-ion-token'),
+  getWaterMask: (z, x, y) => ipcRenderer.invoke('get-water-mask', z, x, y),
+  onCoastlineStatus: (cb) => {
+    const listener = (_e: unknown, message: string): void => cb(message);
+    ipcRenderer.on('coastline-status', listener);
+    return () => ipcRenderer.removeListener('coastline-status', listener);
+  },
   fetchTerrainTile: (sourceId, z, x, y) =>
     ipcRenderer.invoke('fetch-terrain-tile', sourceId, z, x, y),
   getGeoidGrid: () => ipcRenderer.invoke('get-geoid-grid'),

@@ -335,6 +335,10 @@ export class TerrariumTerrainProvider implements TerrainProvider {
 
   private async loadTile(x: number, y: number, level: number): Promise<TerrainData> {
     const src = await this.resolvedSource(x, y, level);
+    // The coastline's word beats the DEM's: where downloaded GSHHG polygons say
+    // water, positive DEM heights are garbage (bay-fill, land smear) and are
+    // held at or below sea level. Null until the user downloads the data.
+    const water = await window.api.getWaterMask(level, x, y).catch(() => null);
     // Fetch the resolving ancestor when either use exists: water above the
     // bathymetry's native zoom is plates (only matters with the sea floor
     // shown — clamping kills every negative sample anyway), and repaired void
@@ -345,7 +349,7 @@ export class TerrariumTerrainProvider implements TerrainProvider {
       level > BATHY_NATIVE_MAX && (wantsBathy || src.tile.voids)
         ? await this.bathySource(x, y, level)
         : null;
-    const terrain = this.toTerrain(src, bathy, x, y, level);
+    const terrain = this.toTerrain(src, bathy, water, x, y, level);
     if (!loggedOk) {
       loggedOk = true;
       console.info('[earthy] terrain: first tile decoded OK');
@@ -386,6 +390,7 @@ export class TerrariumTerrainProvider implements TerrainProvider {
   private toTerrain(
     src: { tile: SourceTile; u0: number; v0: number; span: number },
     bathy: { tile: SourceTile; u0: number; v0: number; span: number } | null,
+    water: Uint8Array | null,
     x: number,
     y: number,
     level: number,
@@ -420,6 +425,15 @@ export class TerrariumTerrainProvider implements TerrainProvider {
             // sea level rather than hoisting coarse land into the fine sea.
             h = Math.min(sampleSource(bathy.tile, bathy.u0 + (bathy.span * i) / step, vb), 0);
           }
+        }
+        // Where the coastline mask says water, the DEM cannot claim land: cap
+        // at sea level, keeping real (negative) bathymetry underneath. The
+        // mask is in THIS tile's own frame, not the resolved source window.
+        if (water) {
+          const mi =
+            Math.min(TILE_SRC - 1, Math.round((j / step) * TILE_SRC - 0.5)) * TILE_SRC +
+            Math.min(TILE_SRC - 1, Math.round((i / step) * TILE_SRC - 0.5));
+          if (water[mi] === 0) h = Math.min(h, 0);
         }
         // Clamp the sea floor away while still in the MSL datum, so "0" here
         // really is sea level rather than the ellipsoid.

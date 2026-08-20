@@ -133,6 +133,14 @@ Copyright © Cure53 and other contributors. Used under the Apache License 2.0
 option of its `MPL-2.0 OR Apache-2.0` dual license. See
 <https://www.apache.org/licenses/LICENSE-2.0>.
 
+### GSHHG coastline data — LGPL-3.0 (downloaded, not distributed)
+
+The optional coastline water mask uses the Global Self-consistent Hierarchical
+High-resolution Geography database (GSHHG) by Paul Wessel (SOEST/UH) and Walter
+H. F. Smith (NOAA), fetched from
+<https://www.soest.hawaii.edu/pwessel/gshhg/> at the user's request; it is not
+bundled with the application. GSHHG is distributed under the LGPL v3+.
+
 ---
 
 *This is a good-faith starter notice, not legal advice. If you distribute Earthy

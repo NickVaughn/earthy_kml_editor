@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 'electron';
 import { join, normalize, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { watch, existsSync, type FSWatcher } from 'node:fs';
+import { watch, existsSync, mkdirSync, writeFileSync, type FSWatcher } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
@@ -29,6 +29,8 @@ import {
   clearTileCache,
   cancelGdal,
   shutdownGdal,
+  prepareCoastline,
+  rasterizeMask,
 } from './gdal';
 import type { SaveRequest, GoogleMapType, AppSettings } from '@shared/ipc';
 import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
@@ -193,6 +195,59 @@ function sendTerrain(settings: AppSettings): void {
   mainWindow?.webContents.send('terrain-changed', settings);
 }
 
+// ---- Coastline water mask (GSHHG) ----------------------------------------
+
+/** GSHHG full-res L1 (ocean coastline), NOAA/Wessel & Smith, stable since 2017. */
+const GSHHG_URL = 'https://www.soest.hawaii.edu/pwessel/gshhg/gshhg-shp-2.3.7.zip';
+const GSHHG_MEMBER = 'GSHHS_shp/f/GSHHS_f_L1';
+
+function coastlineDir(): string {
+  return join(app.getPath('userData'), 'coastline');
+}
+/** The prepared (EPSG:3857 + spatial index) coastline, or null if not built. */
+function preparedCoastline(): string | null {
+  const p = join(coastlineDir(), 'coastline_3857.shp');
+  return existsSync(p) ? p : null;
+}
+
+let coastlineDownloadRunning = false;
+async function downloadCoastline(): Promise<void> {
+  if (coastlineDownloadRunning) return;
+  coastlineDownloadRunning = true;
+  const say = (msg: string): void => {
+    mainWindow?.webContents.send('coastline-status', msg);
+  };
+  try {
+    say('Downloading GSHHG coastline data (~150 MB)…');
+    const res = await net.fetch(GSHHG_URL);
+    if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+    const zipBytes = Buffer.from(await res.arrayBuffer());
+    say('Extracting coastline polygons…');
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(zipBytes);
+    mkdirSync(coastlineDir(), { recursive: true });
+    let shpPath: string | null = null;
+    for (const ext of ['shp', 'shx', 'dbf', 'prj']) {
+      const entry = zip.file(`${GSHHG_MEMBER}.${ext}`);
+      if (!entry) throw new Error(`archive is missing ${GSHHG_MEMBER}.${ext}`);
+      const out = join(coastlineDir(), `GSHHS_f_L1.${ext}`);
+      writeFileSync(out, await entry.async('nodebuffer'));
+      if (ext === 'shp') shpPath = out;
+    }
+    say('Reprojecting and indexing (one-time, takes a minute)…');
+    await prepareCoastline(shpPath as string, coastlineDir());
+    say('Coastline data ready — terrain will use it as tiles reload.');
+    // Rebuild the provider so new terrain tiles consult the mask.
+    sendTerrain(getSettings());
+    buildMenu();
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    say(`Coastline download failed: ${why}`);
+  } finally {
+    coastlineDownloadRunning = false;
+  }
+}
+
 /** Cesium ion access token, or null. EARTHY_ION_TOKEN preferred; the
  *  ecosystem-conventional CESIUM_ION_TOKEN is honoured too. */
 function getIonToken(): string | null {
@@ -240,6 +295,13 @@ function buildMenu(): void {
         sendTerrain(next);
         buildMenu();
       },
+    },
+    { type: 'separator' },
+    {
+      label: preparedCoastline()
+        ? 'Re-download Coastline Data (GSHHG)…'
+        : 'Download Coastline Data (GSHHG, ~150 MB)…',
+      click: () => void downloadCoastline(),
     },
     { type: 'separator' },
     ...BUILTIN_TERRAIN.map(
@@ -388,6 +450,23 @@ function registerIpc(): void {
   );
   ipcMain.handle('has-google-key', () => hasGoogleKey());
   ipcMain.handle('get-ion-token', () => getIonToken());
+  ipcMain.handle('get-water-mask', async (_e, z: number, x: number, y: number) => {
+    const prepared = preparedCoastline();
+    if (!prepared) return null;
+    const dir = join(tilesRoot(), 'watermask', String(z), String(x));
+    const cached = join(dir, `${y}.bin`);
+    try {
+      return new Uint8Array(await fsp.readFile(cached));
+    } catch {
+      /* miss */
+    }
+    const { mask } = await rasterizeMask(prepared, z, x, y);
+    fsp
+      .mkdir(dir, { recursive: true })
+      .then(() => fsp.writeFile(cached, mask))
+      .catch(() => {});
+    return mask;
+  });
 
   ipcMain.handle(
     'fetch-terrain-tile',

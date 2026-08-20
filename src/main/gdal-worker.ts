@@ -639,6 +639,122 @@ async function convertRaster(
   }
 }
 
+// ---- Coastline water mask --------------------------------------------------
+
+/**
+ * Reproject the downloaded coastline polygons (GSHHG L1, EPSG:4326) to Web
+ * Mercator with a spatial index, so per-tile rasterisation touches only the
+ * polygons under the tile instead of scanning the planet. One-time cost after
+ * download.
+ */
+async function prepareCoastline(
+  shpPath: string,
+  outDir: string,
+): Promise<{ path: string }> {
+  const Gdal = await loadGdal();
+  const opened = await Gdal.open(shpPath);
+  const dataset = opened.datasets?.[0];
+  if (!dataset) throw new Error(errText(opened.errors) || 'Could not open coastline data.');
+  const outPath = join(outDir, 'coastline_3857.shp');
+  const out = await Gdal.ogr2ogr(dataset, [
+    '-f',
+    'ESRI Shapefile',
+    '-t_srs',
+    'EPSG:3857',
+    // The mercator projection blows up at the poles; GSHHG L1 includes the
+    // Antarctic polygon, which must be clipped to the mercator world square.
+    '-clipdst',
+    String(-MERC_R),
+    String(-MERC_R),
+    String(MERC_R),
+    String(MERC_R),
+    '-lco',
+    'SPATIAL_INDEX=YES',
+    '-nlt',
+    'PROMOTE_TO_MULTI',
+  ]);
+  const files: [Uint8Array, string][] = [];
+  for (const ext of ['shp', 'shx', 'dbf', 'prj', 'qix']) {
+    const src = String(out.real ?? out).replace(/\.shp$/i, `.${ext}`);
+    try {
+      files.push([await Gdal.getFileBytes(src), outPath.replace(/\.shp$/i, `.${ext}`)]);
+    } catch {
+      /* optional sidecar missing (e.g. qix name differs) — tolerated below */
+    }
+  }
+  if (!files.some(([, p]) => p.endsWith('.shp'))) {
+    throw new Error('Coastline reprojection produced no output.');
+  }
+  mkdirSync(outDir, { recursive: true });
+  for (const [bytes, p] of files) writeFileSync(p, bytes);
+  await Gdal.close(dataset).catch(() => undefined);
+  return { path: outPath };
+}
+
+/** Prepared coastline datasets stay open across mask requests. */
+const coastlineDatasets = new Map<string, unknown>();
+
+/**
+ * Burn the prepared coastline into a 256x256 byte mask (1 = land, 0 = water)
+ * for one Web Mercator XYZ tile. Output travels as an uncompressed GeoTIFF the
+ * worker decodes with geotiff.js — gdal_rasterize cannot Create PNGs.
+ */
+async function rasterizeMask(
+  path: string,
+  z: number,
+  x: number,
+  y: number,
+): Promise<{ mask: Uint8Array }> {
+  const Gdal = await loadGdal();
+  let dataset = coastlineDatasets.get(path);
+  if (!dataset) {
+    const opened = await Gdal.open(path);
+    dataset = opened.datasets?.[0];
+    if (!dataset) throw new Error(errText(opened.errors) || 'Could not open prepared coastline.');
+    coastlineDatasets.set(path, dataset);
+  }
+  const span = (2 * MERC_R) / 2 ** z;
+  const west = -MERC_R + x * span;
+  const north = MERC_R - y * span;
+  const out = await Gdal.gdal_rasterize(dataset, [
+    '-burn',
+    '1',
+    '-init',
+    '0',
+    '-ot',
+    'Byte',
+    '-ts',
+    String(TILE_PX),
+    String(TILE_PX),
+    '-te',
+    String(west),
+    String(north - span),
+    String(west + span),
+    String(north),
+    '-co',
+    'COMPRESS=NONE',
+  ]);
+  const bytes = await Gdal.getFileBytes(out.real ?? out);
+  // Same web-worker stub + real dynamic import as readGeotiffHeader — a plain
+  // import() here gets rewritten to require() by the CJS bundle and geotiff's
+  // `web-worker` dep self-bootstraps inside a worker_thread and crashes.
+  const g = globalThis as { Worker?: unknown };
+  if (typeof g.Worker !== 'function') {
+    g.Worker = class WorkerStub {
+      constructor() {
+        throw new Error('geotiff decoder pool is not used in Earthy');
+      }
+    };
+  }
+  const { fromArrayBuffer } = await esmImport('geotiff');
+  const tiff = await fromArrayBuffer(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+  );
+  const image = await tiff.getImage();
+  const rasters = await image.readRasters({ interleave: true });
+  return { mask: Uint8Array.from(rasters as ArrayLike<number>) };
+}
+
 // ---- XYZ tile pyramid -----------------------------------------------------
 
 /** Web Mercator half-extent in metres (EPSG:3857 world edge). */
@@ -813,6 +929,12 @@ parentPort?.on('message', async (req: GdalRequest) => {
         break;
       case 'tileRaster':
         result = await tileRaster(req.id, req.path, req.hash, req.cacheDir);
+        break;
+      case 'prepareCoastline':
+        result = await prepareCoastline(req.shpPath, req.outDir);
+        break;
+      case 'rasterizeMask':
+        result = await rasterizeMask(req.path, req.z, req.x, req.y);
         break;
       default:
         throw new Error(`Unknown request type`);

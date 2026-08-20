@@ -241,6 +241,11 @@ export function App(): JSX.Element {
     });
   }, [applyTerrain]);
 
+  // ---- coastline download progress from the Terrain menu -------------------
+  useEffect(() => {
+    return window.api.onCoastlineStatus((message) => flash(message, 15000));
+  }, []);
+
   // ---- open/close a document: rebuild + frame -----------------------------
   useEffect(() => {
     globeRef.current?.setDocuments(useStore.getState().docs);

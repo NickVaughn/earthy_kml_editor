@@ -95,6 +95,13 @@ export interface Api {
   hasGoogleKey(): Promise<boolean>;
   /** Cesium ion access token (EARTHY_ION_TOKEN / CESIUM_ION_TOKEN), or null. */
   getIonToken(): Promise<string | null>;
+  /**
+   * 256x256 land mask (1 = land, 0 = water) for one XYZ tile, rasterised from
+   * downloaded GSHHG coastline polygons — or null until they are downloaded.
+   */
+  getWaterMask(z: number, x: number, y: number): Promise<Uint8Array | null>;
+  /** Progress/status lines from the coastline download (for the status strip). */
+  onCoastlineStatus(cb: (message: string) => void): () => void;
   /** Raw PNG bytes for a terrain tile; main proxies the remote source (dodges CORS). */
   fetchTerrainTile(sourceId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
   /** Raw bytes of the bundled EGM96 geoid GeoTIFF; the renderer parses them. */

@@ -106,6 +106,21 @@ export async function tileRaster(path: string): Promise<TiledRaster> {
   return request<TiledRaster>({ type: 'tileRaster', path, hash, cacheDir });
 }
 
+/** Reproject downloaded coastline polygons for fast per-tile rasterisation. */
+export function prepareCoastline(shpPath: string, outDir: string): Promise<{ path: string }> {
+  return request<{ path: string }>({ type: 'prepareCoastline', shpPath, outDir });
+}
+
+/** 256x256 land mask (1 = land, 0 = water) for one Web Mercator XYZ tile. */
+export function rasterizeMask(
+  path: string,
+  z: number,
+  x: number,
+  y: number,
+): Promise<{ mask: Uint8Array }> {
+  return request<{ mask: Uint8Array }>({ type: 'rasterizeMask', path, z, x, y });
+}
+
 /** Total bytes held by the tile cache, and how many pyramids it holds. */
 export function tileCacheUsage(): { bytes: number; pyramids: number } {
   const root = tilesRoot();

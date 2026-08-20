@@ -114,7 +114,23 @@ export type GdalRequest =
   | { id: string; type: 'inspectRaster'; path: string }
   | { id: string; type: 'planRaster'; path: string }
   | { id: string; type: 'convertRaster'; path: string; maxDimension?: number }
-  | { id: string; type: 'tileRaster'; path: string; hash: string; cacheDir: string };
+  | { id: string; type: 'tileRaster'; path: string; hash: string; cacheDir: string }
+  | {
+      id: string;
+      /** Reproject downloaded coastline polygons to EPSG:3857 + spatial index. */
+      type: 'prepareCoastline';
+      shpPath: string;
+      outDir: string;
+    }
+  | {
+      id: string;
+      /** Burn the prepared coastline into a 256x256 land mask for one XYZ tile. */
+      type: 'rasterizeMask';
+      path: string;
+      z: number;
+      x: number;
+      y: number;
+    };
 
 /** Responses from the worker. */
 export type GdalResponse =
