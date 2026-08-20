@@ -42,11 +42,15 @@ import {
   TilingScheme,
   WebMercatorTilingScheme,
 } from 'cesium';
-import { terrainSourceById, type TerrainSourceDesc } from '@shared/terrain';
+import {
+  terrainSourceById,
+  decodeTerrarium,
+  repairVoids,
+  TILE_SRC,
+  type TerrainSourceDesc,
+} from '@shared/terrain';
 import { geoidHeight } from '@renderer/model/geoid';
 
-/** Terrarium source tiles are 256×256. */
-const TILE_SRC = 256;
 /** Height samples per side handed to Cesium; a light regular grid per tile. */
 const GRID = 65;
 
@@ -69,11 +73,6 @@ interface SourceTile {
 
 const sourceCache = new Map<string, SourceTile>();
 
-/** Terrarium RGB → metres. */
-function decodeTerrarium(r: number, g: number, b: number): number {
-  return r * 256 + g + b / 256 - 32768;
-}
-
 /**
  * Bilinear sample of a source tile at normalised (u, v), both in [0, 1] across
  * the tile, v measured from the north edge. Pixel centres sit at (i + 0.5)/N,
@@ -94,10 +93,11 @@ function sampleSource(tile: SourceTile, u: number, v: number): number {
   return top + (bot - top) * ty;
 }
 
-// Log the first success and the first failure, so DevTools shows whether terrain
-// tiles are actually loading without spamming a line per tile.
+// Log the first success, the first failure and the first repaired tile, so
+// DevTools shows what is happening without spamming a line per tile.
 let loggedOk = false;
 let loggedErr = false;
+let loggedVoid = false;
 
 // One reusable canvas for pixel read-back (renderer is single-threaded).
 let scratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
@@ -199,11 +199,26 @@ export class TerrariumTerrainProvider implements TerrainProvider {
       ctx.drawImage(bitmap, 0, 0, TILE_SRC, TILE_SRC);
       const { data } = ctx.getImageData(0, 0, TILE_SRC, TILE_SRC);
       const heights = new Float32Array(TILE_SRC * TILE_SRC);
-      let flat = true;
       for (let i = 0; i < heights.length; i++) {
         const p = i * 4;
         heights[i] = decodeTerrarium(data[p], data[p + 1], data[p + 2]);
-        if (flat && heights[i] !== heights[0]) flat = false;
+      }
+      // Before anything else looks at the data: a single void sample drags its
+      // whole triangle fan 32 km down (see repairVoids).
+      const repaired = repairVoids(heights);
+      if (repaired > 0 && !loggedVoid) {
+        loggedVoid = true;
+        console.info(
+          `[earthy] terrain: repaired ${repaired} void samples in tile ${level}/${x}/${y}` +
+            ' (logged once; other tiles may need it too)',
+        );
+      }
+      let flat = true;
+      for (let i = 1; i < heights.length; i++) {
+        if (heights[i] !== heights[0]) {
+          flat = false;
+          break;
+        }
       }
       tile = { heights, flat };
     } finally {
