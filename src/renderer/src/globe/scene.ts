@@ -50,8 +50,14 @@ const DEFAULT_POINT = Color.WHITE;
  * Applied PER DOCUMENT, not to the scene: a scene-wide budget means opening one
  * oversized file silently drops every other open document to flat, which looks
  * like a regression in a file that was fine a moment ago.
+ *
+ * 5M is an experiment against the fleet's biggest real file
+ * (HawaiiSpectralCoverage, 4,160,370 vertices): the same GPU draped an
+ * 823k-vertex document in 885 ms, which extrapolates to ~4.5 s here. If the
+ * measurement comes back bad, this goes back to 1_000_000 — the constant is
+ * the entire mechanism.
  */
-export const DRAPE_VERTEX_BUDGET = 1_000_000;
+export const DRAPE_VERTEX_BUDGET = 5_000_000;
 
 /** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
 function vertexCount(g: Geometry): number {
