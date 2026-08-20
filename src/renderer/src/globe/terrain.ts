@@ -430,12 +430,26 @@ export class TerrariumTerrainProvider implements TerrainProvider {
       }
     }
 
-    return new HeightmapTerrainData({
+    const data = new HeightmapTerrainData({
       buffer: heights,
       width: GRID,
       height: GRID,
       structure: { heightScale: 1, heightOffset: 0 },
     });
+    // Longer tile skirts than Cesium's default (~level error x4: 19 m at z15,
+    // 38 m at z14). This source's zoom levels genuinely disagree — off Kona a
+    // bay reads +94 m at z14 and a -55 m water plate at z15 — and a step
+    // taller than the skirt shows as a hole straight through to the skybox at
+    // LOD boundaries. A skirt is cheap wall geometry; 150 m covers every
+    // disagreement measured. Cesium computes `_skirtHeight` privately inside
+    // createMesh (verified against @cesium/engine 1.143), so pin the property.
+    const skirt = Math.max(150, (this._levelZeroError / (1 << level)) * 4);
+    Object.defineProperty(data, '_skirtHeight', {
+      configurable: true,
+      get: () => skirt,
+      set: () => {},
+    });
+    return data;
   }
 }
 
