@@ -51,16 +51,34 @@ const DEFAULT_POINT = Color.WHITE;
  * oversized file silently drops every other open document to flat, which looks
  * like a regression in a file that was fine a moment ago.
  *
- * Measured 2026-08-20 before settling on 1M: at 5M the 4,160,370-vertex
- * HawaiiSpectralCoverage file BUILT fine (~12 s) and then killed the renderer
- * with "RangeError: Array buffer allocation failed" — Cesium batches every
- * instance of a primitive into one monolithic vertex buffer, and the
- * classification volumes for that many vertices exceed what V8 will allocate.
- * Above the budget the ceiling is memory, not time; raising this again needs
- * chunked primitives (bounded instances per GroundPrimitive), not a bigger
- * number.
+ * Measured 2026-08-20: at 5M the 4,160,370-vertex HawaiiSpectralCoverage file
+ * built in ~12 s, then a geometry worker died in packCreateGeometryResults
+ * with "RangeError: Array buffer allocation failed" — Cesium was packing a
+ * whole primitive's instances into one contiguous Float64Array. The fix is
+ * DRAPE_CHUNK_VERTICES below (bounded instances per classification
+ * primitive), after which the budget guards TOTAL resident memory rather than
+ * any single allocation.
+ *
+ * Total memory does scale with the machine, but there is exactly one measured
+ * data point, so the scaling is a floor, not a curve: small machines keep the
+ * conservative 1M, everything else gets 5M. `navigator.deviceMemory` is
+ * deliberately coarse (it caps at 8) — exactly the granularity the evidence
+ * supports. Guarded for the node test environment, which has no navigator.
  */
-export const DRAPE_VERTEX_BUDGET = 1_000_000;
+export const DRAPE_VERTEX_BUDGET =
+  typeof navigator !== 'undefined' &&
+  ((navigator as { deviceMemory?: number }).deviceMemory ?? 8) >= 8
+    ? 5_000_000
+    : 1_000_000;
+
+/**
+ * Vertex cap per classification primitive. Splitting the instances into
+ * chunks bounds the worker's transfer pack (the allocation that failed above)
+ * and turns "one giant build" into a stream of survivable ones. The value is
+ * a fixed constant on purpose: the per-allocation ceiling is a V8 behaviour,
+ * not a function of how much RAM the machine has.
+ */
+const DRAPE_CHUNK_VERTICES = 500_000;
 
 /** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
 function vertexCount(g: Geometry): number {
@@ -284,8 +302,26 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
 
   const polygonInstances: GeometryInstance[] = [];
   const lineInstances: GeometryInstance[] = []; // hairline lines, batched as GPU LINES
-  const groundPolygonInstances: GeometryInstance[] = [];
-  const groundLineInstances: GeometryInstance[] = [];
+  /** Classification instances, split into chunks of ≤ DRAPE_CHUNK_VERTICES. */
+  interface DrapeChunk {
+    instances: GeometryInstance[];
+    vertices: number;
+  }
+  const groundPolygonChunks: DrapeChunk[] = [];
+  const groundLineChunks: DrapeChunk[] = [];
+  const pushChunked = (
+    chunks: DrapeChunk[],
+    instance: GeometryInstance,
+    vertices: number,
+  ): void => {
+    const last = chunks[chunks.length - 1];
+    if (!last || last.vertices + vertices > DRAPE_CHUNK_VERTICES) {
+      chunks.push({ instances: [instance], vertices });
+    } else {
+      last.instances.push(instance);
+      last.vertices += vertices;
+    }
+  };
   const stats: SceneStats = {
     vertices,
     drapeSkipped,
@@ -346,7 +382,8 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     show: boolean,
   ): void => {
     stats.groundLines++;
-    groundLineInstances.push(
+    pushChunked(
+      groundLineChunks,
       new GeometryInstance({
         geometry: new GroundPolylineGeometry({ positions, width }),
         attributes: {
@@ -355,6 +392,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         },
         id,
       }),
+      positions.length,
     );
   };
 
@@ -511,7 +549,8 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
           );
           if (drape && !absolute) {
             stats.groundFills++;
-            groundPolygonInstances.push(
+            pushChunked(
+              groundPolygonChunks,
               new GeometryInstance({
                 // No height: GroundPrimitive uses the footprint and classifies
                 // against the surface.
@@ -522,6 +561,8 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
                 },
                 id: node.id,
               }),
+              g.outerBoundary.length +
+                g.innerBoundaries.reduce((n, ring) => n + ring.length, 0),
             );
           } else {
             stats.fills++;
@@ -617,46 +658,47 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
-  // The draped counterparts: one classification primitive each, in the ground
-  // collection. Show toggles work the same way — per-instance attributes.
-  let groundPolygonPrimitive: GroundPrimitive | null = null;
-  if (groundPolygonInstances.length > 0) {
-    groundPolygonPrimitive = new GroundPrimitive({
-      geometryInstances: groundPolygonInstances,
+  // The draped counterparts, one classification primitive PER CHUNK so no
+  // geometry worker ever packs more than DRAPE_CHUNK_VERTICES into a single
+  // transfer buffer (the allocation that killed the 4.16M-vertex build).
+  // Show toggles work the same way — per-instance attributes on the chunk
+  // that owns the instance.
+  for (const chunk of groundPolygonChunks) {
+    const prim = new GroundPrimitive({
+      geometryInstances: chunk.instances,
       // GroundPrimitive defaults to no appearance at all; KML fills are usually
       // translucent, so say so explicitly as the pre-Phase-5 code did.
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
       releaseGeometryInstances: false,
-      asynchronous: groundPolygonInstances.length > 200,
+      asynchronous: chunk.instances.length > 200,
     });
-    groundPrimitives.add(groundPolygonPrimitive);
-    for (const inst of groundPolygonInstances) {
+    groundPrimitives.add(prim);
+    for (const inst of chunk.instances) {
       const id = inst.id as string;
       addToggle(id, {
         set: (sh) => {
-          if (!groundPolygonPrimitive || !groundPolygonPrimitive.ready) return;
-          const attr = groundPolygonPrimitive.getGeometryInstanceAttributes(id);
+          if (!prim.ready) return;
+          const attr = prim.getGeometryInstanceAttributes(id);
           if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
         },
       });
     }
   }
 
-  let groundLinePrimitive: GroundPolylinePrimitive | null = null;
-  if (groundLineInstances.length > 0) {
-    groundLinePrimitive = new GroundPolylinePrimitive({
-      geometryInstances: groundLineInstances,
+  for (const chunk of groundLineChunks) {
+    const prim = new GroundPolylinePrimitive({
+      geometryInstances: chunk.instances,
       appearance: new PolylineColorAppearance(),
       releaseGeometryInstances: false,
-      asynchronous: groundLineInstances.length > 200,
+      asynchronous: chunk.instances.length > 200,
     });
-    groundPrimitives.add(groundLinePrimitive);
-    for (const inst of groundLineInstances) {
+    groundPrimitives.add(prim);
+    for (const inst of chunk.instances) {
       const id = inst.id as string;
       addToggle(id, {
         set: (sh) => {
-          if (!groundLinePrimitive || !groundLinePrimitive.ready) return;
-          const attr = groundLinePrimitive.getGeometryInstanceAttributes(id);
+          if (!prim.ready) return;
+          const attr = prim.getGeometryInstanceAttributes(id);
           if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
         },
       });
