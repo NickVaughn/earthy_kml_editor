@@ -9,6 +9,7 @@ interface Props {
 export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
   const settings = useStore((s) => s.settings);
   const hasGoogleKey = useStore((s) => s.hasGoogleKey);
+  const hasIonKey = useStore((s) => s.hasIonKey);
   const docCount = useStore((s) => s.docs.length);
   const mode = useStore((s) => s.interactionMode);
   const setMode = useStore((s) => s.setMode);
@@ -56,10 +57,12 @@ export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
             <option
               key={b.id}
               value={b.id}
-              disabled={b.needsGoogleKey && !hasGoogleKey}
+              disabled={(b.needsGoogleKey && !hasGoogleKey) || (b.needsIonKey && !hasIonKey)}
             >
               {b.label}
-              {b.needsGoogleKey && !hasGoogleKey ? ' (no key)' : ''}
+              {(b.needsGoogleKey && !hasGoogleKey) || (b.needsIonKey && !hasIonKey)
+                ? ' (no key)'
+                : ''}
             </option>
           ))}
         </select>

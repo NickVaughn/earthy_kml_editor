@@ -67,6 +67,7 @@ interface AppState {
 
   settings: AppSettings;
   hasGoogleKey: boolean;
+  hasIonKey: boolean;
   cursorLon: number | null;
   cursorLat: number | null;
   cursorHeight: number | null;
@@ -88,6 +89,7 @@ interface AppState {
   openBalloon(id: string | null): void;
   setSettings(next: AppSettings): void;
   setHasGoogleKey(v: boolean): void;
+  setHasIonKey(v: boolean): void;
   setCursor(
     lon: number | null,
     lat: number | null,
@@ -150,7 +152,7 @@ interface AppState {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  basemap: 'esri',
+  basemap: 'ion-aerial',
   googleMapType: 'satellite',
   customXyzUrl: '',
   render3DTerrain: false,
@@ -199,6 +201,7 @@ export const useStore = create<AppState>((set, get) => {
     renameRequestId: null,
     settings: DEFAULT_SETTINGS,
     hasGoogleKey: false,
+    hasIonKey: false,
     cursorLon: null,
     cursorLat: null,
     cursorHeight: null,
@@ -259,6 +262,9 @@ export const useStore = create<AppState>((set, get) => {
     },
     setHasGoogleKey(v) {
       set({ hasGoogleKey: v });
+    },
+    setHasIonKey(v: boolean) {
+      set({ hasIonKey: v });
     },
     setCursor(lon, lat, height = null, heightMsl = null) {
       set({

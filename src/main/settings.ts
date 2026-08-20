@@ -2,7 +2,7 @@ import Store from 'electron-store';
 import type { AppSettings } from '@shared/ipc';
 
 const DEFAULTS: AppSettings = {
-  basemap: 'esri',
+  basemap: 'ion-aerial',
   googleMapType: 'satellite',
   customXyzUrl: '',
   render3DTerrain: false,

@@ -160,13 +160,15 @@ export function App(): JSX.Element {
       const t0 = performance.now();
       const mark = (what: string) =>
         console.info(`[earthy] boot: ${what} at ${(performance.now() - t0).toFixed(0)}ms`);
-      const [settings, hasKey] = await Promise.all([
+      const [settings, hasKey, ionToken] = await Promise.all([
         window.api.getSettings(),
         window.api.hasGoogleKey(),
+        window.api.getIonToken(),
       ]);
       mark('settings');
       useStore.getState().setSettings(settings);
       useStore.getState().setHasGoogleKey(hasKey);
+      useStore.getState().setHasIonKey(ionToken !== null);
       // The basemap fetch (provider metadata) and the geoid parse are
       // independent — run them together. Terrain still waits for the geoid:
       // tiles bake the undulation in at decode time, so a tile decoded before
@@ -191,10 +193,14 @@ export function App(): JSX.Element {
     } catch (err) {
       console.error('Basemap failed:', err);
       // Fall back to Esri so the user is never left with a blank globe — but say
-      // so, otherwise the chosen basemap just looks identical to Esri.
+      // so, otherwise the chosen basemap just looks identical to Esri. A missing
+      // key is the expected state on a keyless install (ion-aerial is the
+      // fresh-install default), not a failure worth flashing about.
       if (id !== 'esri') {
         const why = err instanceof Error ? err.message : String(err);
-        flash(`“${def.label}” failed to load — showing Esri World Imagery instead. ${why}`, 12000);
+        if (!/not configured/i.test(why)) {
+          flash(`“${def.label}” failed to load — showing Esri World Imagery instead. ${why}`, 12000);
+        }
         await globe.setBasemap(basemapById('esri').build({}));
       }
     }

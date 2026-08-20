@@ -1,5 +1,6 @@
 import {
   ImageryProvider,
+  IonImageryProvider,
   UrlTemplateImageryProvider,
   ArcGisMapServerImageryProvider,
   Credit,
@@ -11,6 +12,8 @@ export interface BasemapDef {
   label: string;
   /** Requires a Google Maps API key. */
   needsGoogleKey?: boolean;
+  /** Requires a Cesium ion access token (EARTHY_ION_TOKEN). */
+  needsIonKey?: boolean;
   build(opts: { customUrl?: string; googleMapType?: GoogleMapType }): Promise<ImageryProvider>;
 }
 
@@ -26,6 +29,20 @@ async function google(mapType: GoogleMapType): Promise<ImageryProvider> {
 }
 
 export const BASEMAPS: BasemapDef[] = [
+  {
+    // First in the list = the fresh-install default. Ion's aerial layer is the
+    // best free imagery going; without a token, applyBasemap falls back to
+    // Esri quietly (a missing key is an expected state, not a failure).
+    id: 'ion-aerial',
+    label: 'Bing Aerial (ion key)',
+    needsIonKey: true,
+    build: async () => {
+      const token = await window.api.getIonToken();
+      if (!token) throw new Error('Cesium ion token not configured');
+      // Asset 2 = Bing Maps Aerial, bundled with every ion account.
+      return IonImageryProvider.fromAssetId(2, { accessToken: token });
+    },
+  },
   {
     id: 'esri',
     label: 'Esri World Imagery',
