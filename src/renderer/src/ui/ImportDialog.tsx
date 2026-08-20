@@ -6,6 +6,8 @@ import {
   rampColor,
   defaultCategories,
   distinctCategoryValues,
+  isSequentialRamp,
+  sortSequentialValues,
   type RampName,
   type FillMode,
   type CategorySpec,
@@ -31,6 +33,7 @@ export function ImportDialog(): JSX.Element | null {
   const [groupField, setGroupField] = useState('');
   const [categoryField, setCategoryField] = useState('');
   const [ramp, setRamp] = useState<RampName>('category');
+  const [rampReversed, setRampReversed] = useState(false);
   const [fillMode, setFillMode] = useState<FillMode>('both');
   const [fillOpacity, setFillOpacity] = useState(0.5);
   const [lineOpacity, setLineOpacity] = useState(1);
@@ -60,8 +63,11 @@ export function ImportDialog(): JSX.Element | null {
   const categoryPreview = useMemo(() => {
     if (!layer || !categoryField) return [];
     const f = layer.fields.find((x) => x.name === categoryField);
-    return f ? [...new Set(f.samples)] : [];
-  }, [layer, categoryField]);
+    const values = f ? [...new Set(f.samples)] : [];
+    // Sequential ramps map an ORDER, so preview (and later seed) the values
+    // sorted; the qualitative palette keeps first-seen order.
+    return isSequentialRamp(ramp) ? sortSequentialValues(values) : values;
+  }, [layer, categoryField, ramp]);
 
   if (!pending || !layer) return null;
 
@@ -93,8 +99,11 @@ export function ImportDialog(): JSX.Element | null {
     setImportStatus(`Reading ${layer.name}…`);
     try {
       const geojson = await convert();
-      const values = distinctCategoryValues(geojson, categoryField);
-      setCategories(defaultCategories(values, { ramp, fillMode, fillOpacity, lineOpacity }));
+      let values = distinctCategoryValues(geojson, categoryField);
+      if (isSequentialRamp(ramp)) values = sortSequentialValues(values);
+      setCategories(
+        defaultCategories(values, { ramp, rampReversed, fillMode, fillOpacity, lineOpacity }),
+      );
       setImportStatus(null);
       setStep(2);
     } catch (err) {
@@ -142,6 +151,7 @@ export function ImportDialog(): JSX.Element | null {
         categories: hasCategories ? categories : undefined,
         categoryFolders,
         ramp,
+        rampReversed,
         fillMode,
         fillOpacity,
         lineOpacity,
@@ -374,11 +384,25 @@ export function ImportDialog(): JSX.Element | null {
                 ))}
               </select>
             </label>
+            {isSequentialRamp(ramp) && (
+              <label className="field-check">
+                <input
+                  type="checkbox"
+                  checked={rampReversed}
+                  onChange={(e) => setRampReversed(e.target.checked)}
+                />
+                Reverse ramp
+              </label>
+            )}
             {categoryPreview.length > 0 && (
               <div className="cat-preview">
                 {categoryPreview.map((v, i) => (
                   <span key={v} className="cat-chip">
-                    <i style={{ background: rampColor(ramp, i, categoryPreview.length) }} />
+                    <i
+                      style={{
+                        background: rampColor(ramp, i, categoryPreview.length, rampReversed),
+                      }}
+                    />
                     {v || '(blank)'}
                   </span>
                 ))}

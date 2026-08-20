@@ -7,6 +7,9 @@ import {
   geojsonGeometry,
   categoryColor,
   defaultCategories,
+  rampColor,
+  sortSequentialValues,
+  RAMPS,
 } from '@renderer/model/geojson';
 import { KmlDocument } from '@renderer/model/document';
 import { serializeKml } from '@renderer/model/serialize';
@@ -386,5 +389,39 @@ describe('vector import', () => {
     doc.undo();
     expect(doc.placemarksUnder().map((p) => p.styleUrl)).toEqual(before);
     expect(serializeKml(doc.data)).not.toContain('earthy-cat-');
+  });
+});
+
+describe('colour ramps: turbo, reversal, sequential sorting', () => {
+  it('offers turbo, with the right endpoints', () => {
+    expect(RAMPS.some((r) => r.id === 'turbo')).toBe(true);
+    // Google's turbo runs dark blue-purple -> dark red.
+    expect(rampColor('turbo', 0, 5)).toBe('#30123b');
+    expect(rampColor('turbo', 4, 5)).toBe('#7a0403');
+  });
+
+  it('reverses any ramp end-for-end', () => {
+    expect(rampColor('turbo', 0, 5, true)).toBe(rampColor('turbo', 4, 5));
+    expect(rampColor('viridis', 2, 5, true)).toBe(rampColor('viridis', 2, 5));
+    expect(rampColor('category', 0, 3, true)).toBe(rampColor('category', 2, 3));
+  });
+
+  it('sorts numeric values numerically, not lexically', () => {
+    expect(sortSequentialValues(['100', '9', '25.5', '3'])).toEqual(['3', '9', '25.5', '100']);
+  });
+
+  it('sorts mixed text with numeric awareness, blanks last', () => {
+    expect(sortSequentialValues(['site10', '', 'site2', 'site1'])).toEqual([
+      'site1',
+      'site2',
+      'site10',
+      '',
+    ]);
+  });
+
+  it('threads reversal through defaultCategories', () => {
+    const cats = defaultCategories(['a', 'b', 'c'], { ramp: 'turbo', rampReversed: true });
+    expect(cats[0].color).toBe('#7a0403');
+    expect(cats[2].color).toBe('#30123b');
   });
 });

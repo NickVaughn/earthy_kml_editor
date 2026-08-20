@@ -44,6 +44,8 @@ export interface ImportOptions {
   categoryFolders?: boolean;
   /** Colour ramp used for categories (default 'category'). */
   ramp?: RampName;
+  /** Run the ramp high-to-low instead of low-to-high. */
+  rampReversed?: boolean;
   /** Outline only, fill only, or both (default 'both'). */
   fillMode?: FillMode;
   /** 0..1 opacity for the fill (default 0.5). */
@@ -77,6 +79,7 @@ export type RampName =
   | 'category'
   | 'rainbow'
   | 'viridis'
+  | 'turbo'
   | 'warm'
   | 'cool'
   | 'grayscale';
@@ -85,10 +88,34 @@ export const RAMPS: { id: RampName; label: string }[] = [
   { id: 'category', label: 'Categorical (distinct)' },
   { id: 'rainbow', label: 'Rainbow' },
   { id: 'viridis', label: 'Viridis' },
+  { id: 'turbo', label: 'Turbo' },
   { id: 'warm', label: 'Warm' },
   { id: 'cool', label: 'Cool' },
   { id: 'grayscale', label: 'Grayscale' },
 ];
+
+/** Ordered (continuous) ramps care about value order; the qualitative one doesn't. */
+export function isSequentialRamp(ramp: RampName): boolean {
+  return ramp !== 'category';
+}
+
+/**
+ * Sort category values for a sequential ramp, so the colour gradient follows
+ * the data's order rather than file order. All-numeric values sort
+ * numerically; otherwise a numeric-aware text sort ("site2" < "site10").
+ * Blanks go last either way.
+ */
+export function sortSequentialValues(values: string[]): string[] {
+  const blanks = values.filter((v) => v.trim() === '');
+  const rest = values.filter((v) => v.trim() !== '');
+  const numeric = rest.length > 0 && rest.every((v) => Number.isFinite(Number(v)));
+  const sorted = [...rest].sort(
+    numeric
+      ? (a, b) => Number(a) - Number(b)
+      : (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+  );
+  return [...sorted, ...blanks];
+}
 
 /** Qualitative palette (cycles) — best for unordered categories. */
 const CATEGORY_PALETTE = [
@@ -99,6 +126,11 @@ const CATEGORY_PALETTE = [
 /** Control points for the continuous ramps. */
 const RAMP_STOPS: Record<Exclude<RampName, 'category' | 'rainbow'>, string[]> = {
   viridis: ['#440154', '#414487', '#2a788e', '#22a884', '#7ad151', '#fde725'],
+  // Sampled from matplotlib's turbo at 9 even steps (Google's colormap).
+  turbo: [
+    '#30123b', '#466be3', '#28bceb', '#32f298', '#a4fc3c',
+    '#eecf3a', '#fb7e21', '#d02f05', '#7a0403',
+  ],
   warm: ['#fff7bc', '#fec44f', '#fe9929', '#ec7014', '#cc4c02', '#8c2d04'],
   cool: ['#f7fbff', '#c6dbef', '#6baed6', '#2171b5', '#08306b'],
   grayscale: ['#eeeeee', '#222222'],
@@ -132,7 +164,13 @@ function interpolateStops(stops: string[], t: number): string {
 }
 
 /** Colour for category `index` of `total`, from the chosen ramp. */
-export function rampColor(ramp: RampName, index: number, total: number): string {
+export function rampColor(
+  ramp: RampName,
+  index: number,
+  total: number,
+  reversed = false,
+): string {
+  if (reversed) index = total - 1 - index;
   if (ramp === 'category') return CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
   if (ramp === 'rainbow') {
     const hue = total <= 1 ? 200 : (index * 360) / total;
@@ -220,6 +258,7 @@ export function defaultCategories(
   values: string[],
   opts: {
     ramp?: RampName;
+    rampReversed?: boolean;
     fillMode?: FillMode;
     fillOpacity?: number;
     lineOpacity?: number;
@@ -229,7 +268,7 @@ export function defaultCategories(
   return values.map((value, i) => ({
     value,
     label: value || '(blank)',
-    color: rampColor(ramp, i, values.length),
+    color: rampColor(ramp, i, values.length, opts.rampReversed ?? false),
     fillMode: opts.fillMode ?? 'both',
     fillOpacity: opts.fillOpacity ?? 0.5,
     lineOpacity: opts.lineOpacity ?? 1,

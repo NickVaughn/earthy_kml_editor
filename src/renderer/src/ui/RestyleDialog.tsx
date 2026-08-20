@@ -7,6 +7,7 @@ import {
   RAMPS,
   rampColor,
   defaultCategories,
+  isSequentialRamp,
   placemarkFieldValue,
   NAME_FIELD,
   type RampName,
@@ -87,6 +88,7 @@ export function RestyleDialog({
 
   // Categorized controls
   const [ramp, setRamp] = useState<RampName>('category');
+  const [rampReversed, setRampReversed] = useState(false);
   const [fillMode, setFillMode] = useState<FillMode>('both');
   const [fillOpacity, setFillOpacity] = useState(0.5);
   const [lineOpacity, setLineOpacity] = useState(1);
@@ -113,7 +115,9 @@ export function RestyleDialog({
   // reseeding, so per-category fine-tuning survives.
   useEffect(() => {
     if (field) {
-      setCategories(defaultCategories(distinct, { ramp, fillMode, fillOpacity, lineOpacity }));
+      setCategories(
+        defaultCategories(distinct, { ramp, rampReversed, fillMode, fillOpacity, lineOpacity }),
+      );
       setEditingCat(null);
     }
   }, [field, distinct]);
@@ -121,9 +125,12 @@ export function RestyleDialog({
   const patchAllCategories = (p: Partial<CategorySpec>): void =>
     setCategories((prev) => prev.map((c) => ({ ...c, ...p })));
 
-  const changeRamp = (r: RampName): void => {
+  const changeRamp = (r: RampName, reversed = rampReversed): void => {
     setRamp(r);
-    setCategories((prev) => prev.map((c, i) => ({ ...c, color: rampColor(r, i, prev.length) })));
+    setRampReversed(reversed);
+    setCategories((prev) =>
+      prev.map((c, i) => ({ ...c, color: rampColor(r, i, prev.length, reversed) })),
+    );
   };
 
   if (t.nodes.length === 0) return null;
@@ -187,6 +194,16 @@ export function RestyleDialog({
                 ))}
               </select>
             </label>
+            {isSequentialRamp(ramp) && (
+              <label className="field-check">
+                <input
+                  type="checkbox"
+                  checked={rampReversed}
+                  onChange={(e) => changeRamp(ramp, e.target.checked)}
+                />
+                Reverse ramp
+              </label>
+            )}
             <label className="insp-row">
               <span>Style</span>
               <select
