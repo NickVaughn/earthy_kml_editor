@@ -11,6 +11,7 @@ const api: Api = {
   getGoogleTileTemplate: (session) =>
     ipcRenderer.invoke('get-google-tile-template', session),
   hasGoogleKey: () => ipcRenderer.invoke('has-google-key'),
+  getIonToken: () => ipcRenderer.invoke('get-ion-token'),
   fetchTerrainTile: (sourceId, z, x, y) =>
     ipcRenderer.invoke('fetch-terrain-tile', sourceId, z, x, y),
   getGeoidGrid: () => ipcRenderer.invoke('get-geoid-grid'),

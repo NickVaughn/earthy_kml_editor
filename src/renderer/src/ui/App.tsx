@@ -175,8 +175,7 @@ export function App(): JSX.Element {
         applyBasemap(settings.basemap).then(() => mark('basemap applied')),
         loadGeoid().then(() => mark('geoid loaded')),
       ]);
-      applyTerrain(settings);
-      mark('terrain applied');
+      void applyTerrain(settings).then(() => mark('terrain applied'));
     })();
   }, []);
 
@@ -201,14 +200,34 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const applyTerrain = useCallback((s: AppSettings) => {
+  // Guards against a slow ion bootstrap landing after a newer toggle.
+  const terrainEpoch = useRef(0);
+  const applyTerrain = useCallback(async (s: AppSettings) => {
     const globe = globeRef.current;
     if (!globe) return;
-    globe.setTerrain(
-      s.render3DTerrain
-        ? terrainProviderFor(s.activeTerrainId, { showBathymetry: s.showBathymetry })
-        : null,
-    );
+    const epoch = ++terrainEpoch.current;
+    let provider = null;
+    if (s.render3DTerrain) {
+      try {
+        provider = await terrainProviderFor(s.activeTerrainId, {
+          showBathymetry: s.showBathymetry,
+        });
+        if (provider === null) {
+          // The factory returns null for an unknown id or a missing ion key —
+          // neither deserves a silent flat globe.
+          flash(
+            `Terrain source “${s.activeTerrainId}” is unavailable ` +
+              '(missing EARTHY_ION_TOKEN?) — showing a flat globe.',
+            12000,
+          );
+        }
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        flash(`Terrain source failed to load — showing a flat globe. ${why}`, 12000);
+      }
+    }
+    if (epoch !== terrainEpoch.current) return; // superseded by a newer toggle
+    globe.setTerrain(provider);
     // Only occlude against real relief; against the flat ellipsoid it would
     // fight the features that sit at height 0.
     globe.setDepthTestAgainstTerrain(s.render3DTerrain && s.depthTestAgainstTerrain);
@@ -218,7 +237,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     return window.api.onTerrainChanged((s) => {
       useStore.getState().setSettings(s);
-      applyTerrain(s);
+      void applyTerrain(s);
     });
   }, [applyTerrain]);
 

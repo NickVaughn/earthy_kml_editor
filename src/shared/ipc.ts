@@ -93,6 +93,8 @@ export interface Api {
   /** The Google tile URL template, with {session}/{key} substituted, {x}{y}{z} left for Cesium. */
   getGoogleTileTemplate(session: string): Promise<string>;
   hasGoogleKey(): Promise<boolean>;
+  /** Cesium ion access token (EARTHY_ION_TOKEN / CESIUM_ION_TOKEN), or null. */
+  getIonToken(): Promise<string | null>;
   /** Raw PNG bytes for a terrain tile; main proxies the remote source (dodges CORS). */
   fetchTerrainTile(sourceId: string, z: number, x: number, y: number): Promise<Uint8Array | null>;
   /** Raw bytes of the bundled EGM96 geoid GeoTIFF; the renderer parses them. */

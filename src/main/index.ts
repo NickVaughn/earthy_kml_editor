@@ -193,6 +193,13 @@ function sendTerrain(settings: AppSettings): void {
   mainWindow?.webContents.send('terrain-changed', settings);
 }
 
+/** Cesium ion access token, or null. EARTHY_ION_TOKEN preferred; the
+ *  ecosystem-conventional CESIUM_ION_TOKEN is honoured too. */
+function getIonToken(): string | null {
+  const key = process.env.EARTHY_ION_TOKEN ?? process.env.CESIUM_ION_TOKEN;
+  return key && key.trim() ? key.trim() : null;
+}
+
 function buildMenu(): void {
   const isMac = process.platform === 'darwin';
   const settings = getSettings();
@@ -212,7 +219,9 @@ function buildMenu(): void {
       label: 'Show sea floor (bathymetry)',
       type: 'checkbox',
       checked: settings.showBathymetry,
-      enabled: settings.render3DTerrain,
+      enabled:
+        settings.render3DTerrain &&
+        terrainSourceById(settings.activeTerrainId)?.encoding === 'terrarium',
       click: () => {
         const next = setSettings({ showBathymetry: !getSettings().showBathymetry });
         sendTerrain(next);
@@ -238,6 +247,8 @@ function buildMenu(): void {
         label: s.label,
         type: 'radio',
         checked: settings.activeTerrainId === s.id,
+        // Keyed sources grey out until their key exists, like Google basemaps.
+        enabled: s.encoding !== 'ion' || getIonToken() !== null,
         click: () => {
           const next = setSettings({ activeTerrainId: s.id });
           sendTerrain(next);
@@ -376,12 +387,13 @@ function registerIpc(): void {
     googleTileTemplate(session),
   );
   ipcMain.handle('has-google-key', () => hasGoogleKey());
+  ipcMain.handle('get-ion-token', () => getIonToken());
 
   ipcMain.handle(
     'fetch-terrain-tile',
     async (_e, sourceId: string, z: number, x: number, y: number) => {
       const desc = terrainSourceById(sourceId);
-      if (!desc) return null;
+      if (!desc || desc.encoding !== 'terrarium') return null;
       // Disk-cache the tiles: the remote sends no cache headers, so without
       // this every launch re-fetches the whole view from S3 cold — which is
       // most of the several seconds the globe takes to appear. Lives under the

@@ -9,18 +9,33 @@
  * decoded per pixel. The renderer meshes them on the fly (see globe/terrain.ts).
  */
 
-export interface TerrainSourceDesc {
-  /** Stable id; also the host in `earthy-terrain://<id>/<z>/<x>/<y>.png`. */
-  id: string;
-  /** User-facing name shown in the Terrain menu. */
-  label: string;
-  /** Remote XYZ tile template, fetched server-side by the main process. */
-  urlTemplate: string;
-  encoding: 'terrarium';
-  /** Deepest zoom the source actually has tiles for; deeper views upsample. */
-  maxZoom: number;
-  attribution: string;
-}
+export type TerrainSourceDesc =
+  | {
+      /** Stable id; also the host in `earthy-terrain://<id>/<z>/<x>/<y>.png`. */
+      id: string;
+      /** User-facing name shown in the Terrain menu. */
+      label: string;
+      /** Remote XYZ tile template, fetched server-side by the main process. */
+      urlTemplate: string;
+      encoding: 'terrarium';
+      /** Deepest zoom the source actually has tiles for; deeper views upsample. */
+      maxZoom: number;
+      attribution: string;
+    }
+  | {
+      id: string;
+      label: string;
+      /**
+       * Cesium ion quantized-mesh terrain, streamed by Cesium's own provider.
+       * Needs an ion access token (EARTHY_ION_TOKEN); the renderer fetches
+       * directly, no main-process proxy. Carries a built-in water mask, so the
+       * coastline comes from the source rather than from DEM guesswork.
+       */
+      encoding: 'ion';
+      /** The ion asset to stream. 1 = Cesium World Terrain. */
+      ionAssetId: number;
+      attribution: string;
+    };
 
 export const BUILTIN_TERRAIN: TerrainSourceDesc[] = [
   {
@@ -30,6 +45,13 @@ export const BUILTIN_TERRAIN: TerrainSourceDesc[] = [
     encoding: 'terrarium',
     maxZoom: 15,
     attribution: 'Elevation — AWS Terrain Tiles (Mapzen · SRTM/GMTED et al.)',
+  },
+  {
+    id: 'cesium-world-terrain',
+    label: 'Cesium World Terrain (ion key)',
+    encoding: 'ion',
+    ionAssetId: 1,
+    attribution: 'Terrain — Cesium World Terrain © Cesium ion',
   },
 ];
 

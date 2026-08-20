@@ -36,10 +36,13 @@
 import {
   Cartesian3,
   Cartographic,
+  CesiumTerrainProvider,
   Credit,
   Ellipsoid,
   Event as CesiumEvent,
   HeightmapTerrainData,
+  Ion,
+  IonResource,
   Math as CesiumMath,
   Request,
   TerrainData,
@@ -453,13 +456,33 @@ export class TerrariumTerrainProvider implements TerrainProvider {
   }
 }
 
-/** Build a terrain provider for a source id, or null if the id is unknown. */
-export function terrainProviderFor(
+/**
+ * Build a terrain provider for a source id, or null if the id is unknown or
+ * its key is missing. Async because Cesium's ion provider bootstraps over the
+ * network (layer.json + token exchange).
+ */
+export async function terrainProviderFor(
   id: string,
   opts?: { showBathymetry?: boolean },
-): TerrariumTerrainProvider | null {
+): Promise<TerrainProvider | null> {
   const desc: TerrainSourceDesc | undefined = terrainSourceById(id);
   if (!desc) return null;
+  if (desc.encoding === 'ion') {
+    const token = await window.api.getIonToken();
+    if (!token) return null;
+    // Scope the token to this request rather than mutating Ion.defaultAccessToken:
+    // nothing else in the app talks to ion, and a global default would silently
+    // authorise future accidental ion use.
+    void Ion; // (kept imported for discoverability of the global alternative)
+    const resource = await IonResource.fromAssetId(desc.ionAssetId, { accessToken: token });
+    return CesiumTerrainProvider.fromUrl(resource, {
+      // The water mask is the point: the coastline comes from the source
+      // instead of DEM guesswork, and the sea renders as sea.
+      requestWaterMask: true,
+      requestVertexNormals: false,
+      credit: desc.attribution,
+    });
+  }
   return new TerrariumTerrainProvider({
     sourceId: desc.id,
     maxZoom: desc.maxZoom,
