@@ -228,6 +228,7 @@ export function App(): JSX.Element {
     }
     if (epoch !== terrainEpoch.current) return; // superseded by a newer toggle
     globe.setTerrain(provider);
+    globe.setShowWaterEffect(s.showWaterEffect);
     // Only occlude against real relief; against the flat ellipsoid it would
     // fight the features that sit at height 0.
     globe.setDepthTestAgainstTerrain(s.render3DTerrain && s.depthTestAgainstTerrain);

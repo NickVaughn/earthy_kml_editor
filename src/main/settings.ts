@@ -9,6 +9,7 @@ const DEFAULTS: AppSettings = {
   activeTerrainId: 'aws-terrarium',
   showBathymetry: false,
   depthTestAgainstTerrain: false,
+  showWaterEffect: true,
 };
 
 interface Schema {

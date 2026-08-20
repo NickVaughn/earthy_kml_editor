@@ -227,6 +227,12 @@ export class GlobeRenderer {
     this.terrainOn = provider !== null;
   }
 
+  /** Animate the sea where the terrain source carries a water mask. A no-op
+   *  (no waves to draw) on sources without one, so always safe to set. */
+  setShowWaterEffect(on: boolean): void {
+    this.viewer.scene.globe.showWaterEffect = on;
+  }
+
   /**
    * Whether relief occludes vector features.
    *

@@ -284,6 +284,20 @@ function buildMenu(): void {
       },
     },
     {
+      label: 'Animated water surface',
+      type: 'checkbox',
+      checked: settings.showWaterEffect,
+      // Waves need a water mask, which only ion terrain carries.
+      enabled:
+        settings.render3DTerrain &&
+        terrainSourceById(settings.activeTerrainId)?.encoding === 'ion',
+      click: () => {
+        const next = setSettings({ showWaterEffect: !getSettings().showWaterEffect });
+        sendTerrain(next);
+        buildMenu();
+      },
+    },
+    {
       label: 'Hide features under terrain',
       type: 'checkbox',
       checked: settings.depthTestAgainstTerrain,

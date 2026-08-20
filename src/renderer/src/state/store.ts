@@ -157,6 +157,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeTerrainId: 'aws-terrarium',
   showBathymetry: false,
   depthTestAgainstTerrain: false,
+  showWaterEffect: true,
 };
 
 export const useStore = create<AppState>((set, get) => {

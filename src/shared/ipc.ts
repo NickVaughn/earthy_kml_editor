@@ -62,6 +62,12 @@ export interface AppSettings {
    * to slide across it as the camera tilts.
    */
   depthTestAgainstTerrain: boolean;
+  /**
+   * Animate the sea with Cesium's specular wave shader. Only does anything on
+   * terrain sources that carry a water mask (Cesium World Terrain); Terrarium
+   * sources have none, so there the toggle is moot and stays greyed out.
+   */
+  showWaterEffect: boolean;
 }
 
 /** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */
