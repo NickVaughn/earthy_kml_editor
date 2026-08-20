@@ -30,17 +30,21 @@ async function google(mapType: GoogleMapType): Promise<ImageryProvider> {
 
 export const BASEMAPS: BasemapDef[] = [
   {
-    // First in the list = the fresh-install default. Ion's aerial layer is the
-    // best free imagery going; without a token, applyBasemap falls back to
-    // Esri quietly (a missing key is an expected state, not a failure).
+    // First in the list = the fresh-install default. Without a token,
+    // applyBasemap falls back to Esri quietly (a missing key is an expected
+    // state, not a failure). Keeps the id 'ion-aerial' so stored settings
+    // survive the switch away from Bing.
     id: 'ion-aerial',
-    label: 'Bing Aerial (ion key)',
+    label: 'Ion Satellite (Google)',
     needsIonKey: true,
     build: async () => {
       const token = await window.api.getIonToken();
       if (!token) throw new Error('Cesium ion token not configured');
-      // Asset 2 = Bing Maps Aerial, bundled with every ion account.
-      return IonImageryProvider.fromAssetId(2, { accessToken: token });
+      // Asset 3830182 = Google Maps 2D Satellite, ion's replacement for Bing
+      // Aerial (asset 2), which authenticates but serves nothing since
+      // Microsoft retired Bing Maps for Enterprise in mid-2025 — the account
+      // still lists it, and it renders a blank layer.
+      return IonImageryProvider.fromAssetId(3830182, { accessToken: token });
     },
   },
   {
