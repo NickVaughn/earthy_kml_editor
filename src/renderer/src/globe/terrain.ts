@@ -488,11 +488,14 @@ export async function terrainProviderFor(
     // nothing else in the app talks to ion, and a global default would silently
     // authorise future accidental ion use.
     void Ion; // (kept imported for discoverability of the global alternative)
-    const resource = await IonResource.fromAssetId(desc.ionAssetId, { accessToken: token });
+    const bathy = opts?.showBathymetry === true && desc.bathymetryAssetId !== undefined;
+    const assetId = bathy ? (desc.bathymetryAssetId as number) : desc.ionAssetId;
+    const resource = await IonResource.fromAssetId(assetId, { accessToken: token });
     return CesiumTerrainProvider.fromUrl(resource, {
-      // The water mask is the point: the coastline comes from the source
-      // instead of DEM guesswork, and the sea renders as sea.
-      requestWaterMask: true,
+      // The water mask is the point of the land asset: the coastline comes
+      // from the source instead of DEM guesswork, and the sea renders as sea.
+      // Showing the sea FLOOR, waves painted over it would be a lie.
+      requestWaterMask: !bathy,
       requestVertexNormals: false,
       credit: desc.attribution,
     });

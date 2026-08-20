@@ -34,6 +34,12 @@ export type TerrainSourceDesc =
       encoding: 'ion';
       /** The ion asset to stream. 1 = Cesium World Terrain. */
       ionAssetId: number;
+      /**
+       * Alternate ion asset streamed when "Show sea floor" is on — for CWT
+       * that is Cesium World Bathymetry (GEBCO), which renders the ocean floor
+       * instead of a sea-level surface.
+       */
+      bathymetryAssetId?: number;
       attribution: string;
     };
 
@@ -51,7 +57,8 @@ export const BUILTIN_TERRAIN: TerrainSourceDesc[] = [
     label: 'Cesium World Terrain (ion key)',
     encoding: 'ion',
     ionAssetId: 1,
-    attribution: 'Terrain — Cesium World Terrain © Cesium ion',
+    bathymetryAssetId: 2426648, // Cesium World Bathymetry (GEBCO)
+    attribution: 'Terrain — Cesium World Terrain / World Bathymetry © Cesium ion',
   },
 ];
 

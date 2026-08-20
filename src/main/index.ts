@@ -276,7 +276,13 @@ function buildMenu(): void {
       checked: settings.showBathymetry,
       enabled:
         settings.render3DTerrain &&
-        terrainSourceById(settings.activeTerrainId)?.encoding === 'terrarium',
+        (() => {
+          const d = terrainSourceById(settings.activeTerrainId);
+          return (
+            d?.encoding === 'terrarium' ||
+            (d?.encoding === 'ion' && d.bathymetryAssetId !== undefined)
+          );
+        })(),
       click: () => {
         const next = setSettings({ showBathymetry: !getSettings().showBathymetry });
         sendTerrain(next);
