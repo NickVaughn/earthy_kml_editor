@@ -109,3 +109,49 @@ describe('gradient-seeded void repair (no sentinel present)', () => {
     expect(repairVoids(h, 16)).toBe(0);
   });
 });
+
+describe('structural void repair (exact-constant regions)', () => {
+  it('removes a floating constant slab (the South Kona "arch")', () => {
+    // Measured in tile 15/2195/14589: a patch of exactly 187 m against ground
+    // of 1..60 m — rendered as a freestanding wall ~130 m above the terrain.
+    const h = grid(16, (x, y) => 40 + x + y);
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 9; x++) h[y * 16 + x] = 187;
+    expect(repairVoids(h, 16)).toBeGreaterThan(0);
+    expect(Math.max(...h)).toBeLessThan(80); // filled back to local ground
+  });
+
+  it('preserves a lake: constant, but its shores are not below it', () => {
+    // A flat 250 m surface set into 260 m ground — constant like the slab, but
+    // nothing around it is lower, which is what makes it a lake.
+    const h = grid(16, () => 260);
+    for (let y = 5; y <= 10; y++) for (let x = 5; x <= 10; x++) h[y * 16 + x] = 250;
+    expect(repairVoids(h, 16)).toBe(0);
+  });
+
+  it('removes exact-zero pinprick pits punched into high ground', () => {
+    // Measured in tile 14/1097/7294: isolated 0 m pixels inside smooth
+    // 40..55 m terrain — rendered as 50 m black pits.
+    const h = grid(16, (x, y) => 40 + x + y);
+    h[5 * 16 + 5] = 0;
+    h[9 * 16 + 10] = 0;
+    h[9 * 16 + 11] = 0;
+    expect(repairVoids(h, 16)).toBe(3);
+    expect(Math.min(...h)).toBeGreaterThan(30);
+  });
+
+  it('preserves a real beach zero that touches low ground', () => {
+    const h = grid(16, (x) => Math.max(0, (x - 8) * 10)); // sea-level flat, then rising
+    expect(repairVoids(h, 16)).toBe(0);
+  });
+
+  it('does not let garbage pits condemn the flat plain around them', () => {
+    // A dead-constant 40 m plain full of 0-pits: the pits are voids, but the
+    // plain must not be judged "floating" on the testimony of its own voids.
+    const h = grid(16, () => 40);
+    h[5 * 16 + 5] = 0;
+    h[10 * 16 + 10] = 0;
+    repairVoids(h, 16);
+    expect(h[5 * 16 + 5]).toBeCloseTo(40, 3);
+    expect(h[0]).toBe(40); // the plain itself untouched
+  });
+});

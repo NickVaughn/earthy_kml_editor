@@ -66,6 +66,20 @@ const VOID_SUSPECT_HEIGHT = -500;
 const VOID_MAX_FRACTION = 0.25;
 /** Neighbour-averaging passes used to grow valid data back over a void. */
 const VOID_FILL_PASSES = 32;
+/** Structural-void limits: exact-constant regions that cannot be topography.
+ * A "pit" is a small patch of exactly-0 punched into ground that is high all
+ * around it — a real beach 0 always touches water or low ground somewhere. A
+ * "slab" is a constant positive patch every observed neighbour of which sits
+ * far BELOW it — a real lake or reservoir is dead constant too, but its shores
+ * are at or above its surface, never 30 m under it. Measured off South Kona:
+ * a constant-187 slab against 1..60 m ground (rendered as a freestanding arch)
+ * and exact-0 pinpricks in smooth 40..55 m land (rendered as black pits). */
+const STRUCT_PIT_MAX_SIZE = 64;
+const STRUCT_PIT_RIM = 25;
+const STRUCT_SLAB_MIN_SIZE = 8;
+const STRUCT_SLAB_DROP = 30;
+const STRUCT_SLAB_MEAN_DROP = 60;
+
 /**
  * A jump this large between ADJACENT samples is not topography. At z15 a
  * sample step is ~30 m of ground, and no coast on Earth drops a kilometre in
@@ -117,6 +131,7 @@ export function repairVoids(h: Float32Array, width = TILE_SRC): number {
       count++;
     }
   }
+  count += structuralSeeds(h, width, height, bad);
   if (count === 0) return 0;
 
   // Grow the void through anything anomalously deep that touches it.
@@ -195,4 +210,99 @@ export function repairVoids(h: Float32Array, width = TILE_SRC): number {
     }
   }
   return repaired;
+}
+
+/**
+ * Mark exact-constant regions that cannot be real terrain (see the STRUCT_*
+ * constants) as voids. Pixels already marked bad are never used as evidence —
+ * and pits are judged before slabs for the same reason: a flat plain riddled
+ * with garbage pits must not have the pits testify that the plain "floats".
+ */
+function structuralSeeds(
+  h: Float32Array,
+  width: number,
+  height: number,
+  bad: Uint8Array,
+): number {
+  const n = h.length;
+  const seen = new Uint8Array(n);
+  interface Region {
+    value: number;
+    members: number[];
+    /** Indices of adjacent non-member samples (may repeat; filtered on use). */
+    outside: number[];
+  }
+  const regions: Region[] = [];
+  const stack: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (seen[i] || bad[i] || h[i] < 0) continue;
+    const c = h[i];
+    const region: Region = { value: c, members: [i], outside: [] };
+    seen[i] = 1;
+    stack.length = 0;
+    stack.push(i);
+    while (stack.length > 0) {
+      const j = stack.pop() as number;
+      const x = j % width;
+      const y = (j / width) | 0;
+      const visit = (k: number): void => {
+        if (h[k] === c && !bad[k]) {
+          if (!seen[k]) {
+            seen[k] = 1;
+            region.members.push(k);
+            stack.push(k);
+          }
+        } else {
+          region.outside.push(k);
+        }
+      };
+      if (x > 0) visit(j - 1);
+      if (x < width - 1) visit(j + 1);
+      if (y > 0) visit(j - width);
+      if (y < height - 1) visit(j + width);
+    }
+    regions.push(region);
+  }
+
+  let added = 0;
+  const mark = (r: Region): void => {
+    for (const j of r.members) {
+      if (!bad[j]) {
+        bad[j] = 1;
+        added++;
+      }
+    }
+  };
+  const rim = (r: Region): { min: number; max: number; mean: number; count: number } => {
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    let count = 0;
+    for (const k of r.outside) {
+      if (bad[k]) continue; // a void is not evidence
+      if (h[k] < min) min = h[k];
+      if (h[k] > max) max = h[k];
+      sum += h[k];
+      count++;
+    }
+    return { min, max, mean: count > 0 ? sum / count : 0, count };
+  };
+
+  for (const r of regions) {
+    if (r.value > 1 || r.members.length > STRUCT_PIT_MAX_SIZE) continue;
+    const e = rim(r);
+    if (e.count > 0 && e.min > STRUCT_PIT_RIM) mark(r);
+  }
+  for (const r of regions) {
+    if (r.value <= 0 || r.members.length < STRUCT_SLAB_MIN_SIZE) continue;
+    if (r.members.length > n >> 2) continue; // a quarter of the tile is landscape
+    const e = rim(r);
+    if (
+      e.count > 0 &&
+      e.max < r.value - STRUCT_SLAB_DROP &&
+      e.mean < r.value - STRUCT_SLAB_MEAN_DROP
+    )
+      mark(r);
+  }
+  return added;
 }

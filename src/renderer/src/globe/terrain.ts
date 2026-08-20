@@ -23,9 +23,15 @@
  *    single constant depth — neighbouring tiles differing by hundreds of metres
  *    turn the sea into a staircase of flat plates. Unless the user asks for the
  *    sea floor we clamp at sea level, so the ocean is a surface (what Google
- *    Earth shows by default). When they do ask for it, a tile that decodes flat
- *    is resampled from the nearest ancestor that actually resolves — see
- *    resolvedSource.
+ *    Earth shows by default). When they do ask for it, water NEVER comes from a
+ *    zoom the bathymetry doesn't really have: any sample below sea level in a
+ *    tile deeper than BATHY_NATIVE_MAX is re-sampled from that zoom's ancestor
+ *    (measured off Kona: z13 is real, smooth NOAA coastal-relief data with 1 m
+ *    steps, while z14/15 water is nearest-upsampled constant plates). Land
+ *    keeps the requested zoom, so cliffs stay sharp while the water beside
+ *    them gets a real slope instead of a plate wall. A wholly-flat tile still
+ *    walks to the nearest resolving ancestor — see resolvedSource — which
+ *    covers plate zoom levels at or below BATHY_NATIVE_MAX too.
  */
 import {
   Cartesian3,
@@ -60,6 +66,12 @@ const GRID = 65;
  * beyond that the source really is flat and the constant value is the answer.
  */
 const MAX_ANCESTOR_WALK = 5;
+/**
+ * Deepest zoom whose WATER is native data rather than nearest-upsampled
+ * plates. Samples below sea level in deeper tiles are taken from this zoom's
+ * ancestor instead (capped at 0 where the coarse coastline says land).
+ */
+const BATHY_NATIVE_MAX = 13;
 /** Decoded source tiles, so an ancestor shared by many children decodes once. */
 const SOURCE_CACHE_MAX = 192;
 
@@ -69,6 +81,8 @@ interface SourceTile {
   heights: Float32Array;
   /** True when every pixel is identical — the source has no data at this zoom. */
   flat: boolean;
+  /** Lowest sample; below 0 means the tile holds water (or garbage). */
+  min: number;
 }
 
 const sourceCache = new Map<string, SourceTile>();
@@ -214,13 +228,12 @@ export class TerrariumTerrainProvider implements TerrainProvider {
         );
       }
       let flat = true;
-      for (let i = 1; i < heights.length; i++) {
-        if (heights[i] !== heights[0]) {
-          flat = false;
-          break;
-        }
+      let min = Infinity;
+      for (let i = 0; i < heights.length; i++) {
+        if (heights[i] !== heights[0]) flat = false;
+        if (heights[i] < min) min = heights[i];
       }
-      tile = { heights, flat };
+      tile = { heights, flat, min };
     } finally {
       bitmap.close();
     }
@@ -276,9 +289,46 @@ export class TerrariumTerrainProvider implements TerrainProvider {
     return { tile, u0: 0, v0: 0, span: 1 };
   }
 
+  /**
+   * The window of the BATHY_NATIVE_MAX-level ancestor covering this tile, for
+   * water samples — walking further up if that ancestor is itself flat. Null
+   * when unavailable; callers then keep the fine (plate) samples.
+   */
+  private async bathySource(
+    x: number,
+    y: number,
+    level: number,
+  ): Promise<{ tile: SourceTile; u0: number; v0: number; span: number } | null> {
+    for (let up = level - BATHY_NATIVE_MAX; up <= level && level - up >= 0; up++) {
+      let anc: SourceTile;
+      try {
+        anc = await this.sourceTile(x >> up, y >> up, level - up);
+      } catch {
+        return null;
+      }
+      if (!anc.flat) {
+        const span = 1 / (1 << up);
+        return {
+          tile: anc,
+          u0: (x - ((x >> up) << up)) * span,
+          v0: (y - ((y >> up) << up)) * span,
+          span,
+        };
+      }
+    }
+    return null;
+  }
+
   private async loadTile(x: number, y: number, level: number): Promise<TerrainData> {
     const src = await this.resolvedSource(x, y, level);
-    const terrain = this.toTerrain(src, x, y, level);
+    // Water above the bathymetry's native zoom is plates; fetch the zoom that
+    // actually resolves it. Only worth anything when the sea floor shows —
+    // with the sea clamped at 0 every negative sample dies anyway.
+    const bathy =
+      this._showBathymetry && level > BATHY_NATIVE_MAX && src.tile.min < 0
+        ? await this.bathySource(x, y, level)
+        : null;
+    const terrain = this.toTerrain(src, bathy, x, y, level);
     if (!loggedOk) {
       loggedOk = true;
       console.info('[earthy] terrain: first tile decoded OK');
@@ -318,6 +368,7 @@ export class TerrariumTerrainProvider implements TerrainProvider {
 
   private toTerrain(
     src: { tile: SourceTile; u0: number; v0: number; span: number },
+    bathy: { tile: SourceTile; u0: number; v0: number; span: number } | null,
     x: number,
     y: number,
     level: number,
@@ -327,6 +378,7 @@ export class TerrariumTerrainProvider implements TerrainProvider {
     const step = GRID - 1;
     for (let j = 0; j < GRID; j++) {
       const v = src.v0 + (src.span * j) / step;
+      const vb = bathy ? bathy.v0 + (bathy.span * j) / step : 0;
       const lat = lats[j];
       for (let i = 0; i < GRID; i++) {
         const u = src.u0 + (src.span * i) / step;
@@ -334,6 +386,12 @@ export class TerrariumTerrainProvider implements TerrainProvider {
         // bilinearly: the 65-node grid is a quarter of the source's resolution,
         // so averaging beats dropping three pixels in four.
         let h = sampleSource(src.tile, u, v);
+        // Water from the zoom that resolves it. Capped at 0: where the coarse
+        // coastline says land and the fine one says water, split at sea level
+        // rather than hoisting coarse land into the fine zoom's sea.
+        if (h < 0 && bathy) {
+          h = Math.min(sampleSource(bathy.tile, bathy.u0 + (bathy.span * i) / step, vb), 0);
+        }
         // Clamp the sea floor away while still in the MSL datum, so "0" here
         // really is sea level rather than the ellipsoid.
         if (!this._showBathymetry && h < 0) h = 0;
