@@ -83,6 +83,12 @@ interface SourceTile {
   flat: boolean;
   /** Lowest sample; below 0 means the tile holds water (or garbage). */
   min: number;
+  /**
+   * Where repairVoids filled garbage, or null if it found none. The in-tile
+   * fill is a guess (its anchors can all sit on the wrong side of a coast), so
+   * these samples are overlaid with ancestor data when any is available.
+   */
+  voids: Uint8Array | null;
 }
 
 const sourceCache = new Map<string, SourceTile>();
@@ -219,7 +225,8 @@ export class TerrariumTerrainProvider implements TerrainProvider {
       }
       // Before anything else looks at the data: a single void sample drags its
       // whole triangle fan 32 km down (see repairVoids).
-      const repaired = repairVoids(heights);
+      const mask = new Uint8Array(heights.length);
+      const repaired = repairVoids(heights, TILE_SRC, mask);
       if (repaired > 0 && !loggedVoid) {
         loggedVoid = true;
         console.info(
@@ -233,7 +240,7 @@ export class TerrariumTerrainProvider implements TerrainProvider {
         if (heights[i] !== heights[0]) flat = false;
         if (heights[i] < min) min = heights[i];
       }
-      tile = { heights, flat, min };
+      tile = { heights, flat, min, voids: repaired > 0 ? mask : null };
     } finally {
       bitmap.close();
     }
@@ -265,7 +272,11 @@ export class TerrariumTerrainProvider implements TerrainProvider {
     level: number,
   ): Promise<{ tile: SourceTile; u0: number; v0: number; span: number }> {
     const tile = await this.sourceTile(x, y, level);
-    if (!this._showBathymetry || !tile.flat) return { tile, u0: 0, v0: 0, span: 1 };
+    // A flat NEGATIVE plate is harmless with the sea clamped at 0, but a flat
+    // POSITIVE one would render as land standing in the ocean — walk those to
+    // a resolving ancestor regardless of the bathymetry setting.
+    const walkable = tile.flat && (this._showBathymetry || tile.heights[0] > 0);
+    if (!walkable) return { tile, u0: 0, v0: 0, span: 1 };
 
     for (let up = 1; up <= MAX_ANCESTOR_WALK && level - up >= 0; up++) {
       let ancestor: SourceTile;
@@ -321,11 +332,14 @@ export class TerrariumTerrainProvider implements TerrainProvider {
 
   private async loadTile(x: number, y: number, level: number): Promise<TerrainData> {
     const src = await this.resolvedSource(x, y, level);
-    // Water above the bathymetry's native zoom is plates; fetch the zoom that
-    // actually resolves it. Only worth anything when the sea floor shows —
-    // with the sea clamped at 0 every negative sample dies anyway.
+    // Fetch the resolving ancestor when either use exists: water above the
+    // bathymetry's native zoom is plates (only matters with the sea floor
+    // shown — clamping kills every negative sample anyway), and repaired void
+    // samples are overlaid with ancestor data whatever the setting, because
+    // the in-tile fill cannot know which side of the coastline it is on.
+    const wantsBathy = this._showBathymetry && src.tile.min < 0;
     const bathy =
-      this._showBathymetry && level > BATHY_NATIVE_MAX && src.tile.min < 0
+      level > BATHY_NATIVE_MAX && (wantsBathy || src.tile.voids)
         ? await this.bathySource(x, y, level)
         : null;
     const terrain = this.toTerrain(src, bathy, x, y, level);
@@ -386,11 +400,23 @@ export class TerrariumTerrainProvider implements TerrainProvider {
         // bilinearly: the 65-node grid is a quarter of the source's resolution,
         // so averaging beats dropping three pixels in four.
         let h = sampleSource(src.tile, u, v);
-        // Water from the zoom that resolves it. Capped at 0: where the coarse
-        // coastline says land and the fine one says water, split at sea level
-        // rather than hoisting coarse land into the fine zoom's sea.
-        if (h < 0 && bathy) {
-          h = Math.min(sampleSource(bathy.tile, bathy.u0 + (bathy.span * i) / step, vb), 0);
+        if (bathy) {
+          const voided =
+            src.tile.voids !== null &&
+            src.tile.voids[
+              Math.min(TILE_SRC - 1, Math.round(v * TILE_SRC - 0.5)) * TILE_SRC +
+                Math.min(TILE_SRC - 1, Math.round(u * TILE_SRC - 0.5))
+            ] === 1;
+          if (voided) {
+            // A repaired void: the fill was a guess, the ancestor is data —
+            // take it whole, land or water.
+            h = sampleSource(bathy.tile, bathy.u0 + (bathy.span * i) / step, vb);
+          } else if (h < 0) {
+            // Water from the zoom that resolves it. Capped at 0: where the
+            // coarse coastline says land and the fine one says water, split at
+            // sea level rather than hoisting coarse land into the fine sea.
+            h = Math.min(sampleSource(bathy.tile, bathy.u0 + (bathy.span * i) / step, vb), 0);
+          }
         }
         // Clamp the sea floor away while still in the MSL datum, so "0" here
         // really is sea level rather than the ellipsoid.

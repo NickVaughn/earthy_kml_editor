@@ -91,16 +91,18 @@ describe('gradient-seeded void repair (no sentinel present)', () => {
   });
 
   it('leaves a coherent coarse-bathymetry plate alone', () => {
-    // A constant negative plate against land is wrong-but-smooth source data:
-    // its interior has no gradient and its shore edge is far below the bar.
-    const h = grid(16, (x) => (x < 8 ? 50 : -153));
+    // A constant negative plate against VARYING land is wrong-but-smooth source
+    // data: the plate is below zero (never a slab candidate) and real land is
+    // never exactly constant, so neither side seeds. (An exactly-constant land
+    // half WOULD be condemned — that is the measured 71 m slab signature.)
+    const h = grid(16, (x, y) => (x < 8 ? 50 + x + y : -153));
     expect(repairVoids(h, 16)).toBe(0);
   });
 
   it('leaves a genuinely steep real coast alone', () => {
-    // +200 m cliff straight into -300 m water: sharp, but physically possible
-    // and below both the suspect depth's gradient trigger and the sentinel.
-    const h = grid(16, (x) => (x < 8 ? 200 : -300));
+    // A varying +200 m cliff face straight into -300 m water: sharp, but real
+    // land varies pixel to pixel and the jump stays under the gradient bar.
+    const h = grid(16, (x, y) => (x < 8 ? 200 + 3 * x + y : -300));
     expect(repairVoids(h, 16)).toBe(0);
   });
 
@@ -153,5 +155,27 @@ describe('structural void repair (exact-constant regions)', () => {
     repairVoids(h, 16);
     expect(h[5 * 16 + 5]).toBeCloseTo(40, 3);
     expect(h[0]).toBe(40); // the plain itself untouched
+  });
+});
+
+describe('large-slab repair (rim evidence, not size caps)', () => {
+  it('removes a slab covering a third of the tile', () => {
+    // Measured off Kona (tile 15/2194/14595): 21,114 px of exactly 71.0 —
+    // 32% of the tile — over water, rim mean -2867. The old quarter-tile size
+    // cap skipped it; rim evidence must carry the decision instead.
+    const h = grid(16, () => -100);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 9; x++) h[y * 16 + x] = 71;
+    expect(repairVoids(h, 16)).toBeGreaterThan(0);
+    expect(Math.max(...h)).toBeLessThanOrEqual(0); // sea, not standing land
+  });
+
+  it('survives the runaway-flood bail intact', () => {
+    // A tile that trips the flood bail (lots of legitimately deep water) AND
+    // carries a floating slab: the bail must not wipe the structural seeds.
+    const h = grid(16, (x, y) => -600 - x - y); // deep everywhere -> flood bails
+    h[0] = -32768; // sentinel seed to start the flood
+    for (let y = 6; y <= 9; y++) for (let x = 6; x <= 9; x++) h[y * 16 + x] = 150;
+    repairVoids(h, 16);
+    expect(h[7 * 16 + 7]).toBeLessThan(0); // slab gone, filled from the deep
   });
 });

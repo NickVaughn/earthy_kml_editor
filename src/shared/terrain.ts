@@ -102,10 +102,21 @@ const VOID_GRADIENT = 1000;
  * that growth, so if it runs away only the impossible samples are treated as
  * voids.
  */
-export function repairVoids(h: Float32Array, width = TILE_SRC): number {
+export function repairVoids(
+  h: Float32Array,
+  width = TILE_SRC,
+  /**
+   * Optional out-parameter (same length as h): set to 1 wherever a void was
+   * filled. The in-tile fill is a guess — its anchors may all be on the wrong
+   * side of a coastline — so callers with access to coarser real data (the
+   * terrain provider's ancestor tiles) overlay that over the mask instead.
+   */
+  voidMask?: Uint8Array,
+): number {
   const n = h.length;
   const height = n / width;
-  const bad = new Uint8Array(n);
+  const bad = voidMask ?? new Uint8Array(n);
+  bad.fill(0);
   let count = 0;
   // Seed on samples that cannot be real: deeper than any ocean, or anomalously
   // deep with a physically impossible jump to a neighbour (see VOID_GRADIENT).
@@ -131,8 +142,12 @@ export function repairVoids(h: Float32Array, width = TILE_SRC): number {
       count++;
     }
   }
-  count += structuralSeeds(h, width, height, bad);
-  if (count === 0) return 0;
+  if (count === 0) {
+    // No depth seeds — structural ones may still exist; skip straight there.
+    count = structuralSeeds(h, width, height, bad);
+    if (count === 0) return 0;
+    return fillVoids(h, width, height, bad);
+  }
 
   // Grow the void through anything anomalously deep that touches it.
   const stack: number[] = [];
@@ -165,6 +180,19 @@ export function repairVoids(h: Float32Array, width = TILE_SRC): number {
     }
   }
 
+  // Structural seeds join AFTER the runaway bail: they are shape-verified, so
+  // a flood that ran away must not wipe them — and they must not feed the
+  // flood either, or a large slab would guarantee the bail that erases it.
+  count += structuralSeeds(h, width, height, bad);
+  if (count === 0) return 0;
+  return fillVoids(h, width, height, bad);
+}
+
+/** Grow valid data back over every marked void; returns how many were filled.
+ *  Works on a copy of the mask, so the caller's record of WHERE survives. */
+function fillVoids(h: Float32Array, width: number, height: number, mask: Uint8Array): number {
+  const bad = mask.slice();
+  const n = h.length;
   // Grow valid neighbours inward. Each pass writes only after reading the whole
   // frontier, so a fill never seeds off another fill from the same pass.
   let holes: number[] = [];
@@ -295,8 +323,14 @@ function structuralSeeds(
   }
   for (const r of regions) {
     if (r.value <= 0 || r.members.length < STRUCT_SLAB_MIN_SIZE) continue;
-    if (r.members.length > n >> 2) continue; // a quarter of the tile is landscape
     const e = rim(r);
+    // No minimum rim count: the measured 21,114-px slab of exact-71 off Kona
+    // is ringed almost entirely by the deep gouge, which phase one voids — so
+    // only a handful of valid samples remain to testify, and they are enough.
+    // Flat ground is protected structurally instead: pits (and any sunken
+    // divot in high constant ground — c <= 1 with a high rim) are voided
+    // first, so a plain's only "low neighbours" stop counting as evidence and
+    // e.count reaches 0.
     if (
       e.count > 0 &&
       e.max < r.value - STRUCT_SLAB_DROP &&
