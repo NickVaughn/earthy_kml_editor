@@ -72,13 +72,24 @@ export const DRAPE_VERTEX_BUDGET =
     : 1_000_000;
 
 /**
- * Vertex cap per classification primitive. Splitting the instances into
- * chunks bounds the worker's transfer pack (the allocation that failed above)
- * and turns "one giant build" into a stream of survivable ones. The value is
- * a fixed constant on purpose: the per-allocation ceiling is a V8 behaviour,
- * not a function of how much RAM the machine has.
+ * INPUT-vertex caps per classification primitive, sized so the worker's
+ * transfer pack (the allocation that failed above) stays around 100-200 MB.
+ * The cap has to be per kind because the pack holds CREATED geometry, and the
+ * expansion factors differ by two orders of magnitude:
+ *
+ * - A polygon fill triangulates to roughly its own vertex count with a few
+ *   floats each — tens of bytes of pack per input vertex.
+ * - A ground polyline extrudes every segment into a shadow-volume wall of
+ *   8 vertices carrying ~9 packed attributes — ~2.4 KB of pack per input
+ *   vertex. The first chunking attempt capped inputs at 500k for both kinds,
+ *   which still meant ~1.2 GB per line pack; nine of those in flight killed
+ *   the WebGL context outright.
+ *
+ * Fixed constants on purpose: the per-allocation ceiling is V8/driver
+ * behaviour, not a function of how much RAM the machine has.
  */
-const DRAPE_CHUNK_VERTICES = 500_000;
+const DRAPE_FILL_CHUNK_VERTICES = 500_000;
+const DRAPE_LINE_CHUNK_VERTICES = 75_000;
 
 /** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
 function vertexCount(g: Geometry): number {
@@ -311,11 +322,12 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const groundLineChunks: DrapeChunk[] = [];
   const pushChunked = (
     chunks: DrapeChunk[],
+    cap: number,
     instance: GeometryInstance,
     vertices: number,
   ): void => {
     const last = chunks[chunks.length - 1];
-    if (!last || last.vertices + vertices > DRAPE_CHUNK_VERTICES) {
+    if (!last || last.vertices + vertices > cap) {
       chunks.push({ instances: [instance], vertices });
     } else {
       last.instances.push(instance);
@@ -384,6 +396,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     stats.groundLines++;
     pushChunked(
       groundLineChunks,
+      DRAPE_LINE_CHUNK_VERTICES,
       new GeometryInstance({
         geometry: new GroundPolylineGeometry({ positions, width }),
         attributes: {
@@ -551,6 +564,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             stats.groundFills++;
             pushChunked(
               groundPolygonChunks,
+              DRAPE_FILL_CHUNK_VERTICES,
               new GeometryInstance({
                 // No height: GroundPrimitive uses the footprint and classifies
                 // against the surface.
@@ -669,12 +683,16 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       // GroundPrimitive defaults to no appearance at all; KML fills are usually
       // translucent, so say so explicitly as the pre-Phase-5 code did.
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
-      releaseGeometryInstances: false,
+      // Free the input geometry after build — show toggles and picking read
+      // the batch table, which survives release. Keeping millions of input
+      // vertices resident was pure overhead.
+      releaseGeometryInstances: true,
       asynchronous: chunk.instances.length > 200,
     });
     groundPrimitives.add(prim);
-    for (const inst of chunk.instances) {
-      const id = inst.id as string;
+    // Register toggles from the ids alone: holding chunk.instances in these
+    // closures would keep the released input geometry alive after all.
+    for (const id of chunk.instances.map((i) => i.id as string)) {
       addToggle(id, {
         set: (sh) => {
           if (!prim.ready) return;
@@ -683,18 +701,18 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         },
       });
     }
+    chunk.instances = [];
   }
 
   for (const chunk of groundLineChunks) {
     const prim = new GroundPolylinePrimitive({
       geometryInstances: chunk.instances,
       appearance: new PolylineColorAppearance(),
-      releaseGeometryInstances: false,
+      releaseGeometryInstances: true,
       asynchronous: chunk.instances.length > 200,
     });
     groundPrimitives.add(prim);
-    for (const inst of chunk.instances) {
-      const id = inst.id as string;
+    for (const id of chunk.instances.map((i) => i.id as string)) {
       addToggle(id, {
         set: (sh) => {
           if (!prim.ready) return;
@@ -703,6 +721,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         },
       });
     }
+    chunk.instances = [];
   }
 
   primitives.add(polylines);
