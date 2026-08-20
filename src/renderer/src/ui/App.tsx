@@ -155,17 +155,28 @@ export function App(): JSX.Element {
   // ---- initial settings + key probe ---------------------------------------
   useEffect(() => {
     (async () => {
+      // Boot-phase timing: these lines are what "how long until the earth
+      // shows up" is diagnosed from — keep them.
+      const t0 = performance.now();
+      const mark = (what: string) =>
+        console.info(`[earthy] boot: ${what} at ${(performance.now() - t0).toFixed(0)}ms`);
       const [settings, hasKey] = await Promise.all([
         window.api.getSettings(),
         window.api.hasGoogleKey(),
       ]);
+      mark('settings');
       useStore.getState().setSettings(settings);
       useStore.getState().setHasGoogleKey(hasKey);
-      await applyBasemap(settings.basemap);
-      // Before the terrain: tiles bake the geoid undulation in at decode time,
-      // so any tile decoded before the grid parses would keep the wrong datum.
-      await loadGeoid();
+      // The basemap fetch (provider metadata) and the geoid parse are
+      // independent — run them together. Terrain still waits for the geoid:
+      // tiles bake the undulation in at decode time, so a tile decoded before
+      // the grid parses would keep the wrong datum until evicted.
+      await Promise.all([
+        applyBasemap(settings.basemap).then(() => mark('basemap applied')),
+        loadGeoid().then(() => mark('geoid loaded')),
+      ]);
       applyTerrain(settings);
+      mark('terrain applied');
     })();
   }, []);
 

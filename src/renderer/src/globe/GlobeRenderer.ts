@@ -125,6 +125,20 @@ export class GlobeRenderer {
       })`,
     );
 
+    // How long the first fully-refined view takes — the "earth shows up" mark.
+    const tInit = performance.now();
+    let sawWork = false;
+    const settleOnce = (queued: number): void => {
+      if (queued > 0) sawWork = true;
+      else if (sawWork) {
+        console.info(
+          `[earthy] globe: initial tiles settled ${(performance.now() - tInit).toFixed(0)}ms after init`,
+        );
+        this.viewer.scene.globe.tileLoadProgressEvent.removeEventListener(settleOnce);
+      }
+    };
+    this.viewer.scene.globe.tileLoadProgressEvent.addEventListener(settleOnce);
+
     this.handler = new ScreenSpaceEventHandler(this.viewer.scene.canvas);
 
     this.handler.setInputAction((movement: ScreenSpaceEventHandler.MotionEvent) => {

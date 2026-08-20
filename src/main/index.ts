@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 
 import { join, normalize, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { watch, existsSync, type FSWatcher } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
 import {
@@ -381,13 +382,29 @@ function registerIpc(): void {
     async (_e, sourceId: string, z: number, x: number, y: number) => {
       const desc = terrainSourceById(sourceId);
       if (!desc) return null;
+      // Disk-cache the tiles: the remote sends no cache headers, so without
+      // this every launch re-fetches the whole view from S3 cold — which is
+      // most of the several seconds the globe takes to appear. Lives under the
+      // same root as the raster pyramids, so "Clear Tile Cache" empties it too.
+      const dir = join(tilesRoot(), `terrain-${sourceId}`, String(z), String(x));
+      const cached = join(dir, `${y}.png`);
+      try {
+        return new Uint8Array(await fsp.readFile(cached));
+      } catch {
+        /* miss */
+      }
       const remote = desc.urlTemplate
         .replace('{z}', String(z))
         .replace('{x}', String(x))
         .replace('{y}', String(y));
       const res = await net.fetch(remote);
       if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      fsp
+        .mkdir(dir, { recursive: true })
+        .then(() => fsp.writeFile(cached, bytes))
+        .catch(() => {}); // cache write failure must never break the fetch
+      return bytes;
     },
   );
 
