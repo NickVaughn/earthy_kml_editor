@@ -59,17 +59,16 @@ const DEFAULT_POINT = Color.WHITE;
  * primitive), after which the budget guards TOTAL resident memory rather than
  * any single allocation.
  *
- * Total memory does scale with the machine, but there is exactly one measured
- * data point, so the scaling is a floor, not a curve: small machines keep the
- * conservative 1M, everything else gets 5M. `navigator.deviceMemory` is
- * deliberately coarse (it caps at 8) — exactly the granularity the evidence
- * supports. Guarded for the node test environment, which has no navigator.
+ * FINAL, after three walls in one evening (2026-08-20): 1M, fixed. Chunking
+ * fixed the per-allocation OOM and per-kind caps fixed the pack arithmetic,
+ * but the 4.16M-vertex file's classification volumes cost 1.5-2 GB RESIDENT
+ * by design — even a build that survives then drags that around every frame.
+ * Brute-force classification is the wrong mechanism at that scale; if that
+ * file ever needs clickable interiors, the path is tiling/LOD, not a bigger
+ * number here. The chunking below stays regardless: it makes every document
+ * that DOES drape build in bounded allocations.
  */
-export const DRAPE_VERTEX_BUDGET =
-  typeof navigator !== 'undefined' &&
-  ((navigator as { deviceMemory?: number }).deviceMemory ?? 8) >= 8
-    ? 5_000_000
-    : 1_000_000;
+export const DRAPE_VERTEX_BUDGET = 1_000_000;
 
 /**
  * INPUT-vertex caps per classification primitive, sized so the worker's
