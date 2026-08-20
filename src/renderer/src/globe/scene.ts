@@ -51,13 +51,16 @@ const DEFAULT_POINT = Color.WHITE;
  * oversized file silently drops every other open document to flat, which looks
  * like a regression in a file that was fine a moment ago.
  *
- * 5M is an experiment against the fleet's biggest real file
- * (HawaiiSpectralCoverage, 4,160,370 vertices): the same GPU draped an
- * 823k-vertex document in 885 ms, which extrapolates to ~4.5 s here. If the
- * measurement comes back bad, this goes back to 1_000_000 — the constant is
- * the entire mechanism.
+ * Measured 2026-08-20 before settling on 1M: at 5M the 4,160,370-vertex
+ * HawaiiSpectralCoverage file BUILT fine (~12 s) and then killed the renderer
+ * with "RangeError: Array buffer allocation failed" — Cesium batches every
+ * instance of a primitive into one monolithic vertex buffer, and the
+ * classification volumes for that many vertices exceed what V8 will allocate.
+ * Above the budget the ceiling is memory, not time; raising this again needs
+ * chunked primitives (bounded instances per GroundPrimitive), not a bigger
+ * number.
  */
-export const DRAPE_VERTEX_BUDGET = 5_000_000;
+export const DRAPE_VERTEX_BUDGET = 1_000_000;
 
 /** Positions in a geometry, for the drape budget. Cheap: no Cartesians built. */
 function vertexCount(g: Geometry): number {
