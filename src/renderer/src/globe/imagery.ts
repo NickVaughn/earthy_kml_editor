@@ -1,6 +1,8 @@
 import {
+  Cesium3DTileset,
   ImageryProvider,
   IonImageryProvider,
+  IonResource,
   UrlTemplateImageryProvider,
   ArcGisMapServerImageryProvider,
   Credit,
@@ -15,6 +17,18 @@ export interface BasemapDef {
   /** Requires a Cesium ion access token (EARTHY_ION_TOKEN). */
   needsIonKey?: boolean;
   build(opts: { customUrl?: string; googleMapType?: GoogleMapType }): Promise<ImageryProvider>;
+  /**
+   * A photorealistic-mesh mode: streams a 3D tileset over the globe on top of
+   * whatever `build` returns (the imagery shows where meshes don't exist and
+   * at far zooms). Selecting any basemap without this tears the tileset down.
+   */
+  buildTileset?(): Promise<Cesium3DTileset>;
+}
+
+async function ionToken(): Promise<string> {
+  const token = await window.api.getIonToken();
+  if (!token) throw new Error('Cesium ion token not configured');
+  return token;
 }
 
 async function google(mapType: GoogleMapType): Promise<ImageryProvider> {
@@ -37,25 +51,45 @@ export const BASEMAPS: BasemapDef[] = [
     id: 'ion-aerial',
     label: 'Ion Satellite (Google)',
     needsIonKey: true,
-    build: async () => {
-      const token = await window.api.getIonToken();
-      if (!token) throw new Error('Cesium ion token not configured');
-      // Asset 3830182 = Google Maps 2D Satellite, ion's replacement for Bing
-      // Aerial (asset 2), which authenticates but serves nothing since
-      // Microsoft retired Bing Maps for Enterprise in mid-2025 — the account
-      // still lists it, and it renders a blank layer.
-      return IonImageryProvider.fromAssetId(3830182, { accessToken: token });
-    },
+    // Asset 3830182 = Google Maps 2D Satellite, ion's replacement for Bing
+    // Aerial (asset 2), which authenticates but serves nothing since Microsoft
+    // retired Bing Maps for Enterprise in mid-2025 — the account still lists
+    // it, and it renders a blank layer.
+    build: async () =>
+      IonImageryProvider.fromAssetId(3830182, { accessToken: await ionToken() }),
   },
   {
     id: 'ion-night',
     label: 'Earth at Night (ion key)',
     needsIonKey: true,
-    build: async () => {
-      const token = await window.api.getIonToken();
-      if (!token) throw new Error('Cesium ion token not configured');
-      // Asset 3812 = NASA Black Marble, ion-hosted (streams on any account).
-      return IonImageryProvider.fromAssetId(3812, { accessToken: token });
+    // Asset 3812 = NASA Black Marble, ion-hosted (streams on any account).
+    build: async () =>
+      IonImageryProvider.fromAssetId(3812, { accessToken: await ionToken() }),
+  },
+  {
+    id: 'ion-sentinel2',
+    label: 'Sentinel-2 (ion key)',
+    needsIonKey: true,
+    build: async () =>
+      // Asset 3954 = ESA Sentinel-2 cloudless, ion-hosted.
+      IonImageryProvider.fromAssetId(3954, { accessToken: await ionToken() }),
+  },
+  {
+    id: 'ion-photorealistic',
+    label: 'Google Photorealistic 3D (ion key)',
+    needsIonKey: true,
+    // Meshes bake their own imagery; Esri underneath covers mesh gaps and the
+    // zoomed-out globe.
+    build: () =>
+      ArcGisMapServerImageryProvider.fromUrl(
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer',
+        { credit: new Credit('Imagery © Esri', true) },
+      ),
+    buildTileset: async () => {
+      const resource = await IonResource.fromAssetId(2275207, {
+        accessToken: await ionToken(),
+      });
+      return Cesium3DTileset.fromUrl(resource);
     },
   },
   {

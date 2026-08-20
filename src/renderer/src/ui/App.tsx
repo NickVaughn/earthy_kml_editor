@@ -190,6 +190,7 @@ export function App(): JSX.Element {
       await globe.setBasemap(
         def.build({ customUrl: settings.customXyzUrl, googleMapType: settings.googleMapType }),
       );
+      globe.setPhotorealistic(def.buildTileset ? await def.buildTileset() : null);
     } catch (err) {
       console.error('Basemap failed:', err);
       // Fall back to Esri so the user is never left with a blank globe — but say

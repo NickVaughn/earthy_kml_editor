@@ -1,4 +1,5 @@
 import {
+  Cesium3DTileset,
   Viewer,
   ImageryProvider,
   ScreenSpaceEventHandler,
@@ -83,6 +84,8 @@ export class GlobeRenderer {
   private selBillboards: BillboardCollection | null = null;
   /** Draped selection outlines, for documents whose features drape. */
   private selGround = new PrimitiveCollection();
+  /** Photorealistic 3D tileset when that basemap mode is active. */
+  private photoTiles: Cesium3DTileset | null = null;
   /** Ground-line instances accumulated while drawing one selection. */
   private selGroundInstances: GeometryInstance[] = [];
   private activeTool: { dispose(): void } | null = null;
@@ -216,6 +219,18 @@ export class GlobeRenderer {
     this.baseLayer = this.viewer.imageryLayers.addImageryProvider(provider);
     this.viewer.imageryLayers.lowerToBottom(this.baseLayer);
     if (previous) this.viewer.imageryLayers.remove(previous, true);
+  }
+
+  /** Stream (or tear down) a photorealistic 3D tileset over the globe. */
+  setPhotorealistic(tileset: Cesium3DTileset | null): void {
+    if (this.photoTiles) {
+      this.viewer.scene.primitives.remove(this.photoTiles); // destroys it
+      this.photoTiles = null;
+    }
+    if (tileset) {
+      this.photoTiles = tileset;
+      this.viewer.scene.primitives.add(tileset);
+    }
   }
 
   /** Swap the globe's terrain: a provider for 3D relief, or null for a flat ellipsoid.
