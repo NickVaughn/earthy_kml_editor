@@ -352,6 +352,43 @@ scene build that reports "instant" can still be followed by a long freeze.
   anything opens its ancestors; unchecking closes them only once nothing visible
   is left under them.
 
+### Phase 5 addendum — the terrain arc (v0.2.0, 2026-08-19/20)
+
+Driven end-to-end by user reports with screenshots; the fifty commits between
+v0.1.0 and v0.2.0 carry the details. Highlights:
+
+- **Datum**: Terrarium heights are orthometric (EGM96), not ellipsoidal — the
+  whole surface was off by the geoid undulation (±19–30 m). Terrain, vectors,
+  and the readout now share one datum, and "flat" geometry sits at sea level,
+  not on the ellipsoid.
+- **Draping restored**: lines and fills classify onto the terrain
+  (GroundPrimitive / GroundPolylinePrimitive) under a per-document 1M-vertex
+  budget with a user-visible fallback message. Points/labels clamp via
+  heightReference (PointPrimitive has none — dots become billboards). Icon
+  hrefs upgrade http→https past the CSP, or the marker falls back to a dot.
+- **Terrarium repair suite** (`shared/terrain.ts`, unit-tested): NODATA
+  sentinel + impossible-gradient + structural (exact-constant pit/slab) void
+  seeding, flood + fill, void masks overlaid with ancestor data; water
+  sampled from the deepest zoom that actually resolves it (z13); flat plates
+  resampled from resolving ancestors; skirts pinned to ≥150 m so inter-zoom
+  disagreements are walls, not holes into the skybox. Kealakekua Bay is
+  unrecoverable in the source (land-filled at every zoom) — hence the next two
+  items.
+- **Cesium ion integration** (`EARTHY_ION_TOKEN`): Cesium World Terrain with
+  water mask (verified datum-consistent), Cesium World Bathymetry behind the
+  sea-floor toggle (Asset Depot add required; missing assets fall back to land
+  terrain with an explanation), animated-water toggle, and basemaps — ion
+  satellite (Google 2D; Bing asset 2 is dead since Microsoft retired it),
+  Sentinel-2, Earth at Night, Google Photorealistic 3D as a scene mode.
+- **GSHHG coastline mask**: one-time ~150 MB download (Terrain menu), GDAL
+  worker rasterises per-tile land masks, ocean clipped to ≤0 where polygons
+  say water. Keyless backup for the DEM's broken coasts.
+- **Startup**: terrain tiles disk-cached (the source sends no cache headers),
+  basemap/geoid load in parallel, boot-phase timings logged permanently.
+- **Verification**: a browser-pane "terrain lab" that imports the app's actual
+  shared module against live tiles — most of the diagnosis happened there,
+  plus fixture-driven runs of the built GDAL worker.
+
 ### Still open in Phase 5
 
 - Search box / geocode (PLAN §7 lists it; nothing exists — Cesium's own geocoder

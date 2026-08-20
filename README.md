@@ -4,7 +4,7 @@ A lean, cross-platform desktop **KML/KMZ viewer and editor** — a small,
 self-hostable alternative for looking at and editing placemarks, paths, and
 polygons on a 3D globe.
 
-> ⚠️ **Work in progress.** This is early software (currently `v0.1.0`). Editing
+> ⚠️ **Work in progress.** This is early software (currently `v0.2.0`). Editing
 > is functional, but expect rough edges, missing features, and breaking changes.
 > There are no stability or data-safety guarantees yet — keep backups of any KML
 > you care about.
@@ -40,13 +40,32 @@ It works and it's tested, but it's a hobby/learning artifact first.
   being scaled down — saved as a KML super-overlay, so a tiled raster stays
   portable and opens in Google Earth at full detail. Long imports show progress
   and can be cancelled.
-- **Optional 3D terrain** — real relief from Terrarium elevation tiles (AWS
-  Terrain is built in), toggled live from the Terrain menu. The cursor readout
-  reports elevation both as height above mean sea level and above the ellipsoid,
-  using a bundled EGM96 geoid grid. Features render flat unless they explicitly
-  ask otherwise (`altitudeMode absolute` with an altitude), which keeps large
-  files fast.
-- Undo/redo throughout, multiple basemaps, and keyboard shortcuts.
+- **Optional 3D terrain** — real relief toggled live from the Terrain menu.
+  AWS Terrarium tiles are built in and keyless, with decode-time repair of the
+  source's coastal defects and optional sea-floor rendering; with a free
+  [Cesium ion](https://ion.cesium.com) token, Cesium World Terrain (with its
+  water mask) and Cesium World Bathymetry stream instead. Vector features
+  drape onto the relief, and the cursor readout reports elevation both as
+  height above mean sea level and above the ellipsoid, using a bundled EGM96
+  geoid grid.
+- **Optional coastline mask** — download GSHHG coastline polygons once (Terrain
+  menu) and the ocean is clipped to sea level even where the elevation data
+  disagrees with the real coast.
+- Undo/redo throughout, keyboard shortcuts, and a stack of basemaps: Esri and
+  OpenStreetMap keyless; ion satellite (Google), Sentinel-2, NASA's Earth at
+  Night, and Google Photorealistic 3D with an ion token; Google Hybrid /
+  Roadmap / Terrain with a Google Maps key.
+
+## API keys (all optional)
+
+Everything works keyless (Esri imagery + AWS terrain). Two env vars unlock
+more, read at launch (put them in your shell or an `.envrc`):
+
+- `EARTHY_ION_TOKEN` — a [Cesium ion](https://ion.cesium.com) access token
+  (free Community tier). Unlocks Cesium World Terrain, World Bathymetry (add it
+  to your ion assets from the Asset Depot first), and the ion basemaps.
+- `EARTHY_GOOGLE_MAPS_API_KEY` — a Google Maps Platform key with the Map Tiles
+  API enabled. Unlocks the Google Hybrid / Roadmap / Terrain basemaps.
 
 ## Built with
 
