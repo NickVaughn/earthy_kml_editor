@@ -521,6 +521,9 @@ export class GlobeRenderer {
         }),
       );
       this.selGroundInstances = [];
+      // Draw over the feature's own draped outline: both are classification
+      // primitives on the same surface, and the later one wins.
+      this.viewer.scene.groundPrimitives.raiseToTop(this.selGround);
     }
   }
 
@@ -601,7 +604,10 @@ export class GlobeRenderer {
         );
         // Match the feature: clamped points are billboards, because Cesium
         // gives PointPrimitive no heightReference.
-        const dot = absolute ? null : dotImage(SELECT_COLOR, 14, Color.WHITE, 2);
+        // A ring, not a disc: it surrounds the marker instead of covering it,
+        // which also removes the draw-order flicker between two co-located
+        // billboards (see dotImage).
+        const dot = absolute ? null : dotImage(null, 18, SELECT_COLOR, 3);
         if (dot && this.selBillboards) {
           this.selBillboards.add({
             position,

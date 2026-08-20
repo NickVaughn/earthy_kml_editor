@@ -86,17 +86,24 @@ const dotImages = new Map<string, string | null>();
  * and scaled back down so it stays crisp on a HiDPI display, and cached by
  * appearance so every dot that looks alike shares one texture-atlas entry.
  *
- * `scale` is the billboard scale that returns it to `pixelSize` on screen.
+ * A null `fill` leaves the centre transparent, giving a ring. The selection
+ * halo uses that: a filled halo and the marker it marks are two co-located
+ * billboards in different collections with depth testing off, so which one
+ * wins is decided by a distance sort between equal distances — it flips as the
+ * camera moves, and the halo appears to flicker. A ring cannot overlap the
+ * marker's pixels at all, so there is nothing to sort.
+ *
+ * `DOT_SCALE` is the billboard scale that returns it to `pixelSize` on screen.
  */
 export const DOT_SCALE = 0.5; // inverse of the 2x supersample below
 
 export function dotImage(
-  fill: Color,
+  fill: Color | null,
   pixelSize = DOT_SIZE,
   outline: Color = Color.BLACK,
   outlineWidth = DOT_OUTLINE,
 ): string | null {
-  const fillCss = fill.toCssColorString();
+  const fillCss = fill ? fill.toCssColorString() : 'none';
   const outlineCss = outline.toCssColorString();
   const key = `${fillCss}|${pixelSize}|${outlineCss}|${outlineWidth}`;
   const cached = dotImages.get(key);
@@ -119,8 +126,17 @@ export function dotImage(
   ctx.fill();
   ctx.beginPath();
   ctx.arc(size / 2, size / 2, (pixelSize * r) / 2, 0, 2 * Math.PI);
-  ctx.fillStyle = fillCss;
-  ctx.fill();
+  if (fill) {
+    ctx.fillStyle = fillCss;
+    ctx.fill();
+  } else {
+    // Punch the centre out, so the marker underneath shows through.
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.restore();
+  }
   const url = canvas.toDataURL('image/png');
   dotImages.set(key, url);
   return url;
