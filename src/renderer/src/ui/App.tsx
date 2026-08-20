@@ -215,9 +215,11 @@ export function App(): JSX.Element {
     let provider = null;
     if (s.render3DTerrain) {
       try {
-        provider = await terrainProviderFor(s.activeTerrainId, {
+        const built = await terrainProviderFor(s.activeTerrainId, {
           showBathymetry: s.showBathymetry,
         });
+        provider = built.provider;
+        if (built.note) flash(built.note, 15000);
         if (provider === null) {
           // The factory returns null for an unknown id or a missing ion key —
           // neither deserves a silent flat globe.

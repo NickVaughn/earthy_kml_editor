@@ -470,40 +470,81 @@ export class TerrariumTerrainProvider implements TerrainProvider {
   }
 }
 
+/** What terrainProviderFor resolved, plus anything the user should be told. */
+export interface TerrainBuild {
+  provider: TerrainProvider | null;
+  /** A degradation worth flashing (e.g. bathymetry asset missing from ion). */
+  note?: string;
+}
+
+async function ionProvider(
+  assetId: number,
+  token: string,
+  waterMask: boolean,
+  credit: string,
+): Promise<TerrainProvider> {
+  // Scope the token to this request rather than mutating Ion.defaultAccessToken:
+  // nothing else in the app talks to ion, and a global default would silently
+  // authorise future accidental ion use.
+  void Ion; // (kept imported for discoverability of the global alternative)
+  const resource = await IonResource.fromAssetId(assetId, { accessToken: token });
+  return CesiumTerrainProvider.fromUrl(resource, {
+    // The water mask is the point of the land asset: the coastline comes from
+    // the source instead of DEM guesswork, and the sea renders as sea. Showing
+    // the sea FLOOR, waves painted over it would be a lie.
+    requestWaterMask: waterMask,
+    requestVertexNormals: false,
+    credit,
+  });
+}
+
 /**
- * Build a terrain provider for a source id, or null if the id is unknown or
- * its key is missing. Async because Cesium's ion provider bootstraps over the
- * network (layer.json + token exchange).
+ * Build a terrain provider for a source id. `provider` is null when the id is
+ * unknown or its key is missing. Async because Cesium's ion provider
+ * bootstraps over the network (layer.json + token exchange).
  */
 export async function terrainProviderFor(
   id: string,
   opts?: { showBathymetry?: boolean },
-): Promise<TerrainProvider | null> {
+): Promise<TerrainBuild> {
   const desc: TerrainSourceDesc | undefined = terrainSourceById(id);
-  if (!desc) return null;
+  if (!desc) return { provider: null };
   if (desc.encoding === 'ion') {
     const token = await window.api.getIonToken();
-    if (!token) return null;
-    // Scope the token to this request rather than mutating Ion.defaultAccessToken:
-    // nothing else in the app talks to ion, and a global default would silently
-    // authorise future accidental ion use.
-    void Ion; // (kept imported for discoverability of the global alternative)
-    const bathy = opts?.showBathymetry === true && desc.bathymetryAssetId !== undefined;
-    const assetId = bathy ? (desc.bathymetryAssetId as number) : desc.ionAssetId;
-    const resource = await IonResource.fromAssetId(assetId, { accessToken: token });
-    return CesiumTerrainProvider.fromUrl(resource, {
-      // The water mask is the point of the land asset: the coastline comes
-      // from the source instead of DEM guesswork, and the sea renders as sea.
-      // Showing the sea FLOOR, waves painted over it would be a lie.
-      requestWaterMask: !bathy,
-      requestVertexNormals: false,
-      credit: desc.attribution,
-    });
+    if (!token) return { provider: null };
+    const wantBathy = opts?.showBathymetry === true && desc.bathymetryAssetId !== undefined;
+    if (wantBathy) {
+      try {
+        return {
+          provider: await ionProvider(
+            desc.bathymetryAssetId as number,
+            token,
+            false,
+            desc.attribution,
+          ),
+        };
+      } catch (err) {
+        // Depot assets (Cesium World Bathymetry) 404 until the user adds them
+        // to their ion account. Falling back to the land asset keeps terrain
+        // on screen; a flat ellipsoid would read as everything being broken.
+        const why = err instanceof Error ? err.message : String(err);
+        return {
+          provider: await ionProvider(desc.ionAssetId, token, true, desc.attribution),
+          note:
+            'Sea-floor terrain is not available on this ion account — add ' +
+            '“Cesium World Bathymetry” in ion’s Asset Depot. Showing land terrain. ' +
+            `(${why})`,
+        };
+      }
+    }
+    return { provider: await ionProvider(desc.ionAssetId, token, true, desc.attribution) };
   }
-  return new TerrariumTerrainProvider({
-    sourceId: desc.id,
-    maxZoom: desc.maxZoom,
-    credit: desc.attribution,
-    showBathymetry: opts?.showBathymetry,
-  });
+  return {
+    provider: new TerrariumTerrainProvider({
+      sourceId: desc.id,
+      maxZoom: desc.maxZoom,
+      credit: desc.attribution,
+      showBathymetry: opts?.showBathymetry,
+    }),
+  };
 }
