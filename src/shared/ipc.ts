@@ -126,8 +126,15 @@ export interface Api {
   setDirty(dirty: boolean): void;
 
   // ---- GDAL import (Phase 4) ----
-  inspectVector(path: string): Promise<import('./gdal').VectorInfo>;
-  convertVector(path: string, layerName: string): Promise<import('./gdal').ConvertedLayer>;
+  inspectVector(
+    path: string,
+    csv?: import('./gdal').CsvOptions,
+  ): Promise<import('./gdal').VectorInfo>;
+  convertVector(
+    path: string,
+    layerName: string,
+    csv?: import('./gdal').CsvOptions,
+  ): Promise<import('./gdal').ConvertedLayer>;
   inspectRaster(path: string): Promise<import('./gdal').RasterInfo>;
   /** Abort the running GDAL job (terminates and respawns the worker). */
   cancelGdal(): Promise<void>;

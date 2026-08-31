@@ -13,6 +13,7 @@ import type {
   RasterPlan,
   TiledRaster,
   GdalProgress,
+  CsvOptions,
 } from '@shared/gdal';
 
 /**
@@ -68,12 +69,16 @@ function request<T>(req: DistributiveOmit<GdalRequest, 'id'>): Promise<T> {
   });
 }
 
-export function inspectVector(path: string): Promise<VectorInfo> {
-  return request<VectorInfo>({ type: 'inspectVector', path });
+export function inspectVector(path: string, csv?: CsvOptions): Promise<VectorInfo> {
+  return request<VectorInfo>({ type: 'inspectVector', path, csv });
 }
 
-export function convertVector(path: string, layerName: string): Promise<ConvertedLayer> {
-  return request<ConvertedLayer>({ type: 'convertVector', path, layerName });
+export function convertVector(
+  path: string,
+  layerName: string,
+  csv?: CsvOptions,
+): Promise<ConvertedLayer> {
+  return request<ConvertedLayer>({ type: 'convertVector', path, layerName, csv });
 }
 
 export function inspectRaster(path: string): Promise<RasterInfo> {

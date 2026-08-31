@@ -20,7 +20,11 @@ import type {
   ConvertedRaster,
   RasterPlan,
   TiledRaster,
+  CsvOptions,
 } from '@shared/gdal';
+// Relative, not '@shared': this is a runtime import and the worker bundle
+// resolves the alias for type-only imports.
+import { csvOpenOptions, isDelimitedText } from '../shared/gdal';
 
 /**
  * GDAL/WASM worker. Runs in a worker_thread so long conversions never block the
@@ -117,15 +121,36 @@ function errText(e: unknown): string {
   return base;
 }
 
+/**
+ * Open a vector file, teaching GDAL how to read coordinates out of delimited
+ * text (which has no geometry of its own). Everything else opens plainly.
+ */
+async function openVector(Gdal: AnyGdal, path: string, csv?: CsvOptions): Promise<AnyGdal> {
+  return isDelimitedText(path) ? Gdal.open(path, csvOpenOptions(csv)) : Gdal.open(path);
+}
+
+/**
+ * The source CRS to declare, or none. Delimited text carries no CRS, so
+ * without this `-t_srs EPSG:4326` has nothing to convert from and ogr2ogr
+ * fails outright; a UTM CSV also needs its real zone stated to land anywhere
+ * near the right place. Formats that carry their own CRS are left alone.
+ */
+function sourceSrsArgs(path: string, csv?: CsvOptions): string[] {
+  if (!isDelimitedText(path)) return [];
+  return ['-s_srs', `EPSG:${csv?.epsg ?? 4326}`];
+}
+
 /** Run ogr2ogr to GeoJSON in WGS84 and return the parsed result. */
 async function toGeoJson(
   Gdal: AnyGdal,
   dataset: unknown,
+  srcSrsArgs: string[] = [],
   extraArgs: string[] = [],
 ): Promise<{ features: any[] }> {
   const out = await Gdal.ogr2ogr(dataset, [
     '-f',
     'GeoJSON',
+    ...srcSrsArgs,
     '-t_srs',
     'EPSG:4326',
     ...extraArgs,
@@ -154,12 +179,36 @@ function inferFields(features: any[]): FieldInfo[] {
   });
 }
 
-async function inspectVector(id: string, path: string): Promise<VectorInfo> {
+async function inspectVector(
+  id: string,
+  path: string,
+  csv?: CsvOptions,
+): Promise<VectorInfo> {
   const Gdal = await loadGdal();
   progress(id, null, 'Reading file…');
-  const opened = await Gdal.open(path);
+  const opened = await openVector(Gdal, path, csv);
   const dataset = opened.datasets[0];
   const info = await Gdal.getInfo(dataset);
+
+  // Delimited text: also list every column as the file has them, so the
+  // dialog's coordinate picker can offer the ones autodetection consumed.
+  let csvColumns: string[] | undefined;
+  if (isDelimitedText(path)) {
+    try {
+      const plain = await Gdal.open(path);
+      const plainInfo = await Gdal.getInfo(plain.datasets[0]);
+      // Declare a CRS even though only field NAMES matter here: without one,
+      // toGeoJson's -t_srs has nothing to convert from and ogr2ogr aborts.
+      const sample = await toGeoJson(Gdal, plain.datasets[0], ['-s_srs', 'EPSG:4326'], [
+        '-limit',
+        '1',
+        plainInfo.layers?.[0]?.name,
+      ]);
+      csvColumns = Object.keys(sample.features[0]?.properties ?? {});
+    } catch {
+      csvColumns = undefined; // best-effort; the picker just has fewer options
+    }
+  }
 
   const layers: LayerInfo[] = [];
   for (const layer of info.layers ?? []) {
@@ -168,7 +217,11 @@ async function inspectVector(id: string, path: string): Promise<VectorInfo> {
     let fields: FieldInfo[] = [];
     let geometryType: string | null = null;
     try {
-      const sample = await toGeoJson(Gdal, dataset, ['-limit', '5', layer.name]);
+      const sample = await toGeoJson(Gdal, dataset, sourceSrsArgs(path, csv), [
+        '-limit',
+        '5',
+        layer.name,
+      ]);
       fields = inferFields(sample.features);
       geometryType = sample.features[0]?.geometry?.type ?? null;
     } catch {
@@ -182,19 +235,21 @@ async function inspectVector(id: string, path: string): Promise<VectorInfo> {
     });
   }
   await Gdal.close(dataset).catch(() => undefined);
-  return { path, driver: info.driverName ?? 'unknown', layers };
+  return { path, driver: info.driverName ?? 'unknown', layers, csvColumns };
 }
 
 async function convertVector(
   id: string,
   path: string,
   layerName: string,
+  csv?: CsvOptions,
 ): Promise<ConvertedLayer> {
   const Gdal = await loadGdal();
   progress(id, null, `Converting ${layerName}…`);
-  const opened = await Gdal.open(path);
+  const opened = await openVector(Gdal, path, csv);
   const dataset = opened.datasets[0];
   const out = await Gdal.ogr2ogr(dataset, [
+    ...sourceSrsArgs(path, csv),
     '-f',
     'GeoJSON',
     '-t_srs',
@@ -913,10 +968,10 @@ parentPort?.on('message', async (req: GdalRequest) => {
     let result: unknown;
     switch (req.type) {
       case 'inspectVector':
-        result = await inspectVector(req.id, req.path);
+        result = await inspectVector(req.id, req.path, req.csv);
         break;
       case 'convertVector':
-        result = await convertVector(req.id, req.path, req.layerName);
+        result = await convertVector(req.id, req.path, req.layerName, req.csv);
         break;
       case 'inspectRaster':
         result = await inspectRaster(req.id, req.path);

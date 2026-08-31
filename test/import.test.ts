@@ -16,6 +16,7 @@ import { KmlDocument } from '@renderer/model/document';
 import { serializeKml } from '@renderer/model/serialize';
 import { parseKml } from '@renderer/model/parse';
 import { fixture } from './helpers';
+import { csvOpenOptions, isDelimitedText } from '@shared/gdal';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PARCELS = readFileSync(join(here, 'fixtures/vector/parcels.geojson'), 'utf-8');
@@ -436,5 +437,36 @@ describe('label size on import', () => {
 
   it('carries the requested label scale into the built style', () => {
     expect(buildStyle('s1', '#4da6ff', { labelScale: 1.6 }).label).toEqual({ scale: 1.6 });
+  });
+});
+
+describe('delimited-text (CSV) coordinate handling', () => {
+  it('recognises delimited-text extensions, and not other vector formats', () => {
+    expect(isDelimitedText('/tmp/sites.csv')).toBe(true);
+    expect(isDelimitedText('/tmp/sites.TSV')).toBe(true);
+    expect(isDelimitedText('/tmp/sites.shp')).toBe(false);
+    expect(isDelimitedText('/tmp/sites.geojson')).toBe(false);
+  });
+
+  it('autodetects the usual coordinate column spellings', () => {
+    const opts = csvOpenOptions();
+    const x = opts.find((o) => o.startsWith('X_POSSIBLE_NAMES='))!;
+    const y = opts.find((o) => o.startsWith('Y_POSSIBLE_NAMES='))!;
+    // Wildcards cover longitude/lon_dd/lat_dd and friends, case-insensitively.
+    expect(x).toContain('lon*');
+    expect(x).toContain('easting');
+    expect(y).toContain('lat*');
+    expect(y).toContain('northing');
+  });
+
+  it('lets explicit columns override autodetection', () => {
+    const opts = csvOpenOptions({ xField: 'Lon_DD', yField: 'Lat_DD' });
+    expect(opts).toContain('X_POSSIBLE_NAMES=Lon_DD');
+    expect(opts).toContain('Y_POSSIBLE_NAMES=Lat_DD');
+  });
+
+  it('drops the coordinate columns from the attribute table', () => {
+    // Otherwise every placemark's description repeats its own coordinates.
+    expect(csvOpenOptions()).toContain('KEEP_GEOM_COLUMNS=NO');
   });
 });

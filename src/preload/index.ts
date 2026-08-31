@@ -40,9 +40,9 @@ const api: Api = {
     return () => ipcRenderer.removeListener('terrain-changed', listener);
   },
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
-  inspectVector: (path) => ipcRenderer.invoke('gdal-inspect-vector', path),
-  convertVector: (path, layerName) =>
-    ipcRenderer.invoke('gdal-convert-vector', path, layerName),
+  inspectVector: (path, csv) => ipcRenderer.invoke('gdal-inspect-vector', path, csv),
+  convertVector: (path, layerName, csv) =>
+    ipcRenderer.invoke('gdal-convert-vector', path, layerName, csv),
   inspectRaster: (path) => ipcRenderer.invoke('gdal-inspect-raster', path),
   cancelGdal: () => ipcRenderer.invoke('gdal-cancel'),
   tileRaster: (path) => ipcRenderer.invoke('gdal-tile-raster', path),

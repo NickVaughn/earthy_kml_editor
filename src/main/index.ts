@@ -33,6 +33,7 @@ import {
   rasterizeMask,
 } from './gdal';
 import type { SaveRequest, GoogleMapType, AppSettings } from '@shared/ipc';
+import type { CsvOptions } from '@shared/gdal';
 import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
 
 let mainWindow: BrowserWindow | null = null;
@@ -427,9 +428,13 @@ function registerIpc(): void {
     isDirty = dirty;
   });
 
-  ipcMain.handle('gdal-inspect-vector', (_e, path: string) => inspectVector(path));
-  ipcMain.handle('gdal-convert-vector', (_e, path: string, layerName: string) =>
-    convertVector(path, layerName),
+  ipcMain.handle('gdal-inspect-vector', (_e, path: string, csv?: CsvOptions) =>
+    inspectVector(path, csv),
+  );
+  ipcMain.handle(
+    'gdal-convert-vector',
+    (_e, path: string, layerName: string, csv?: CsvOptions) =>
+      convertVector(path, layerName, csv),
   );
   ipcMain.handle('gdal-inspect-raster', (_e, path: string) => inspectRaster(path));
   ipcMain.handle('gdal-cancel', () => cancelGdal());

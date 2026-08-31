@@ -13,6 +13,7 @@ import {
   type CategorySpec,
 } from '@renderer/model/geojson';
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
+import { isDelimitedText, type CsvOptions } from '@shared/gdal';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
   { id: 'both', label: 'Outline + fill' },
@@ -47,11 +48,26 @@ export function ImportDialog(): JSX.Element | null {
   const [groupNames, setGroupNames] = useState<{ value: string; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // Delimited text has no geometry or CRS of its own. GDAL autodetects the
+  // usual coordinate column names on the first read; these override it when it
+  // misses, and declare what CRS the numbers are in.
+  const [xField, setXField] = useState('');
+  const [yField, setYField] = useState('');
+  const [epsg, setEpsg] = useState(4326);
+  const [reinspecting, setReinspecting] = useState(false);
+
   // Cache the converted GeoJSON so Back → Next doesn't re-run GDAL.
   const cache = useRef<{ layer: string; geojson: string } | null>(null);
 
   const layer = pending?.info.layers[layerIdx];
   const isPoint = !!layer?.geometryType?.includes('Point');
+  const isCsv = !!pending && isDelimitedText(pending.path);
+  const csvOptions: CsvOptions | undefined = isCsv
+    ? { xField: xField || undefined, yField: yField || undefined, epsg }
+    : undefined;
+  // Autodetection either found geometry or it didn't; if it didn't, the import
+  // would produce placemarks with no location, so block it and say why.
+  const csvNeedsColumns = isCsv && !layer?.geometryType;
   const showFill = fillMode !== 'outline';
   const showOutline = fillMode !== 'fill';
 
@@ -87,13 +103,43 @@ export function ImportDialog(): JSX.Element | null {
     cache.current = null;
   };
 
+  // Cache key includes the CSV options: changing a coordinate column or the
+  // EPSG changes the geometry, so the cached GeoJSON must not be reused.
+  const convertKey = `${layer.name}|${xField}|${yField}|${epsg}`;
   const convert = async (): Promise<string> => {
-    if (cache.current?.layer === layer.name) return cache.current.geojson;
+    if (cache.current?.layer === convertKey) return cache.current.geojson;
     const converted = await withGdalJob(`Converting ${layer.name}…`, () =>
-      window.api.convertVector(pending.path, layer.name),
+      window.api.convertVector(pending.path, layer.name, csvOptions),
     );
-    cache.current = { layer: layer.name, geojson: converted.geojson };
+    cache.current = { layer: convertKey, geojson: converted.geojson };
     return converted.geojson;
+  };
+
+  /**
+   * Re-read the file with the chosen coordinate columns, so the summary line,
+   * the field list and the geometry type all reflect what will be imported.
+   */
+  const reinspect = async (next: { x?: string; y?: string; epsg?: number }): Promise<void> => {
+    const x = next.x ?? xField;
+    const y = next.y ?? yField;
+    const code = next.epsg ?? epsg;
+    setXField(x);
+    setYField(y);
+    setEpsg(code);
+    cache.current = null;
+    setReinspecting(true);
+    try {
+      const info = await window.api.inspectVector(pending.path, {
+        xField: x || undefined,
+        yField: y || undefined,
+        epsg: code,
+      });
+      if (info.layers.length) setPending({ path: pending.path, info });
+    } catch (err) {
+      alert(`Could not re-read the file: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setReinspecting(false);
+    }
   };
 
   const goToCategories = async (): Promise<void> => {
@@ -363,6 +409,67 @@ export function ImportDialog(): JSX.Element | null {
           </select>
         </label>
 
+        {isCsv && (
+          <fieldset className="restyle-group">
+            <legend>Coordinates</legend>
+            <div className="modal-summary">
+              {csvNeedsColumns
+                ? 'No coordinate columns detected — pick them below.'
+                : `Detected ${layer.geometryType ?? 'geometry'} from this file's columns.`}
+            </div>
+            <label className="insp-row">
+              <span>Longitude / X</span>
+              <select
+                value={xField}
+                disabled={reinspecting}
+                onChange={(e) => void reinspect({ x: e.target.value })}
+              >
+                <option value="">(auto-detect)</option>
+                {(pending.info.csvColumns ?? []).map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="insp-row">
+              <span>Latitude / Y</span>
+              <select
+                value={yField}
+                disabled={reinspecting}
+                onChange={(e) => void reinspect({ y: e.target.value })}
+              >
+                <option value="">(auto-detect)</option>
+                {(pending.info.csvColumns ?? []).map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="insp-row">
+              <span>EPSG</span>
+              <input
+                type="number"
+                min="1024"
+                max="32767"
+                step="1"
+                value={epsg}
+                disabled={reinspecting}
+                onChange={(e) => setEpsg(Number(e.target.value) || 4326)}
+                onBlur={(e) => void reinspect({ epsg: Number(e.target.value) || 4326 })}
+              />
+              <span className="opacity-val">
+                {epsg === 4326 ? 'lon/lat' : 'projected'}
+              </span>
+            </label>
+            <div className="modal-summary">
+              The CRS these coordinates are in. KML is always WGS84, so anything
+              other than 4326 is reprojected on import.
+            </div>
+          </fieldset>
+        )}
+
         <label className="insp-row">
           <span>Colour by</span>
           <select value={categoryField} onChange={(e) => setCategoryField(e.target.value)}>
@@ -506,19 +613,30 @@ export function ImportDialog(): JSX.Element | null {
         </div>
 
         <div className="modal-actions">
+          {csvNeedsColumns && (
+            <span className="muted">Pick coordinate columns to continue</span>
+          )}
           <button onClick={close} disabled={busy}>
             Cancel
           </button>
           {hasCategories ? (
-            <button className="primary" onClick={goToCategories} disabled={busy}>
+            <button
+              className="primary"
+              onClick={goToCategories}
+              disabled={busy || csvNeedsColumns}
+            >
               {busy ? 'Reading…' : 'Next: categories →'}
             </button>
           ) : needsFolderPage ? (
-            <button className="primary" onClick={goToFolders} disabled={busy}>
+            <button
+              className="primary"
+              onClick={goToFolders}
+              disabled={busy || csvNeedsColumns}
+            >
               {busy ? 'Reading…' : 'Next: folders →'}
             </button>
           ) : (
-            <button className="primary" onClick={runImport} disabled={busy}>
+            <button className="primary" onClick={runImport} disabled={busy || csvNeedsColumns}>
               {busy ? 'Importing…' : `Import ${layer.featureCount.toLocaleString()} features`}
             </button>
           )}
