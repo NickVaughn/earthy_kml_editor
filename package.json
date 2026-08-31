@@ -1,7 +1,7 @@
 {
   "name": "earthy",
   "version": "0.2.0",
-  "description": "Earthy — a lean cross-platform desktop KML/KMZ viewer and editor",
+  "description": "Earthy \u2014 a lean cross-platform desktop KML/KMZ viewer and editor",
   "main": "out/main/index.js",
   "author": "NickVaughn",
   "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
@@ -16,7 +16,8 @@
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
-    "make": "npm run build && electron-builder --mac dmg --config electron-builder.yml"
+    "make": "npm run build && electron-builder --mac dmg --config electron-builder.yml",
+    "install-local": "npm run build && electron-builder --mac dir --config electron-builder.yml && bash build/install-local.sh"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.6",

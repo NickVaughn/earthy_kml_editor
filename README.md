@@ -110,10 +110,18 @@ npm run build      # build for production
 npm run make       # build a distributable (macOS dmg, see electron-builder.yml)
 ```
 
-`npm run make` writes a `.dmg` to `release/`; drag Earthy to Applications and
-it launches from Finder like any other app. It is a snapshot of the code at
-build time — re-run `npm run make` to pick up later changes — and it reads its
-keys from the keys file above rather than from your shell.
+To use Earthy as an installed app while working on it:
+
+```bash
+npm run install-local   # build and replace /Applications/Earthy.app (~8 s)
+```
+
+It quits a running copy first, so re-run it whenever you want the installed
+app to catch up with the code. `npm run make` is the other path — it writes a
+`.dmg` to `release/` for handing to someone else, and takes considerably
+longer because of the compression.
+
+An installed app reads its keys from the keys file above, not from your shell.
 
 ## License
 
