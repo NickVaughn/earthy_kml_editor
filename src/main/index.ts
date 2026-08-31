@@ -17,6 +17,7 @@ import {
   pushRecentFile,
 } from './settings';
 import { getGeoidGrid } from './geoid';
+import { apiKey, openKeysFile } from './keys';
 import {
   inspectVector,
   convertVector,
@@ -252,8 +253,7 @@ async function downloadCoastline(): Promise<void> {
 /** Cesium ion access token, or null. EARTHY_ION_TOKEN preferred; the
  *  ecosystem-conventional CESIUM_ION_TOKEN is honoured too. */
 function getIonToken(): string | null {
-  const key = process.env.EARTHY_ION_TOKEN ?? process.env.CESIUM_ION_TOKEN;
-  return key && key.trim() ? key.trim() : null;
+  return apiKey('EARTHY_ION_TOKEN', 'CESIUM_ION_TOKEN');
 }
 
 function buildMenu(): void {
@@ -352,6 +352,7 @@ function buildMenu(): void {
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenu('saveAs') },
         { type: 'separator' },
+        { label: 'API Keys…', click: () => void openKeysFile() },
         { label: 'Clear Tile Cache…', click: () => sendMenu('clearTiles') },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },

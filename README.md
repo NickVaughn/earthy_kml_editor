@@ -58,14 +58,20 @@ It works and it's tested, but it's a hobby/learning artifact first.
 
 ## API keys (all optional)
 
-Everything works keyless (Esri imagery + AWS terrain). Two env vars unlock
-more, read at launch (put them in your shell or an `.envrc`):
+Everything works keyless (Esri imagery + AWS terrain). Two keys unlock more:
 
 - `EARTHY_ION_TOKEN` — a [Cesium ion](https://ion.cesium.com) access token
   (free Community tier). Unlocks Cesium World Terrain, World Bathymetry (add it
   to your ion assets from the Asset Depot first), and the ion basemaps.
 - `EARTHY_GOOGLE_MAPS_API_KEY` — a Google Maps Platform key with the Map Tiles
   API enabled. Unlocks the Google Hybrid / Roadmap / Terrain basemaps.
+
+Set them either as environment variables (a shell export or an `.envrc`, which
+is what `npm run dev` picks up) or in Earthy's own keys file — **File ▸ API
+Keys…** opens it, with the names commented in place. The file matters for an
+installed app: launched from Finder or the Dock it inherits no shell
+environment, so `.envrc` never reaches it. Environment variables win over the
+file, and both are read at launch, so restart after changing either.
 
 ## Built with
 
@@ -103,6 +109,11 @@ npm test           # run the test suite
 npm run build      # build for production
 npm run make       # build a distributable (macOS dmg, see electron-builder.yml)
 ```
+
+`npm run make` writes a `.dmg` to `release/`; drag Earthy to Applications and
+it launches from Finder like any other app. It is a snapshot of the code at
+build time — re-run `npm run make` to pick up later changes — and it reads its
+keys from the keys file above rather than from your shell.
 
 ## License
 

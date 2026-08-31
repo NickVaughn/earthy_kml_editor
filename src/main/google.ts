@@ -1,4 +1,5 @@
 import type { GoogleSession, GoogleMapType } from '@shared/ipc';
+import { apiKey } from './keys';
 
 /**
  * Google Map Tiles API session management.
@@ -17,10 +18,7 @@ const cache = new Map<GoogleMapType, CachedSession>();
 
 export function getGoogleKey(): string | null {
   // EARTHY_* is the current name; NGE_* still works for pre-rename setups.
-  const key = (
-    process.env.EARTHY_GOOGLE_MAPS_API_KEY ?? process.env.NGE_GOOGLE_MAPS_API_KEY
-  )?.trim();
-  return key && key.length > 0 ? key : null;
+  return apiKey('EARTHY_GOOGLE_MAPS_API_KEY', 'NGE_GOOGLE_MAPS_API_KEY');
 }
 
 export function hasGoogleKey(): boolean {
