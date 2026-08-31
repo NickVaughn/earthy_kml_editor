@@ -56,11 +56,6 @@ const api: Api = {
     ipcRenderer.on('gdal-progress', listener);
     return () => ipcRenderer.removeListener('gdal-progress', listener);
   },
-  onFileChanged: (cb) => {
-    const listener = (_e: unknown, path: string) => cb(path);
-    ipcRenderer.on('file-externally-changed', listener);
-    return () => ipcRenderer.removeListener('file-externally-changed', listener);
-  },
   onFileDrop: (cb) => {
     const onDrop = (e: DragEvent) => {
       e.preventDefault();

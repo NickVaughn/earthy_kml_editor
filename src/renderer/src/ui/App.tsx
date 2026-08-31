@@ -605,27 +605,10 @@ export function App(): JSX.Element {
         }
       }
     });
-    const offChanged = window.api.onFileChanged((path) => {
-      const st = useStore.getState();
-      const doc = st.docs.find((d) => d.path === path);
-      if (!doc) return;
-      const msg = doc.dirty
-        ? 'This file changed on disk, but you have unsaved edits. Reload and lose your changes?'
-        : 'This file changed on disk. Reload?';
-      if (window.confirm(msg)) {
-        window.api.openPath(path).then((opened) => {
-          if (opened) {
-            useStore.getState().closeDoc(doc.id);
-            useStore.getState().openDoc(opened);
-          }
-        });
-      }
-    });
     return () => {
       offMenu();
       offOpen();
       offDrop();
-      offChanged();
     };
   }, [doOpen, doSave, openPath, loadRaster, clearTiles]);
 

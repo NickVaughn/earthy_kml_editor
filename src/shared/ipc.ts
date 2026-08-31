@@ -150,8 +150,6 @@ export interface Api {
     maxDimension?: number,
   ): Promise<import('./gdal').ConvertedRaster>;
   onGdalProgress(cb: (p: import('./gdal').GdalProgress) => void): () => void;
-  /** Fires when the currently open file is modified on disk by another program. */
-  onFileChanged(cb: (path: string) => void): () => void;
 }
 
 declare global {

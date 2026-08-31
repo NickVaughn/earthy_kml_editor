@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 'electron';
 import { join, normalize, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { watch, existsSync, mkdirSync, writeFileSync, type FSWatcher } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import type { MenuItemConstructorOptions } from 'electron';
 import { readGeoFile, writeGeoFile } from './kmz';
@@ -45,28 +45,11 @@ let pendingOpenPath: string | null = null;
 let isDirty = false;
 let forceClose = false;
 
-// External-change watcher for the currently open file.
-let watcher: FSWatcher | null = null;
-let watchedPath: string | null = null;
-let selfWriteUntil = 0; // ignore our own saves until this timestamp
-let changeTimer: NodeJS.Timeout | null = null;
-
-function watchFile(path: string): void {
-  if (watcher && watchedPath === path) return;
-  watcher?.close();
-  watchedPath = path;
-  try {
-    watcher = watch(path, () => {
-      if (Date.now() < selfWriteUntil) return; // our own save
-      if (changeTimer) clearTimeout(changeTimer);
-      changeTimer = setTimeout(() => {
-        mainWindow?.webContents.send('file-externally-changed', path);
-      }, 300);
-    });
-  } catch {
-    watcher = null;
-  }
-}
+// A document is detached from disk once it is read: the file's path is only
+// remembered as somewhere to save back to. Earthy used to watch it and offer
+// to reload on an external change, which meant a prompt after its own saves
+// whenever a write outlived the suppression window, and risked replacing
+// unsaved edits with whatever another program had written.
 
 /** 1×1 transparent PNG, served where a pyramid has no tile. */
 const EMPTY_TILE = Buffer.from(
@@ -395,20 +378,17 @@ function registerIpc(): void {
     if (res.canceled || res.filePaths.length === 0) return null;
     const opened = await readGeoFile(res.filePaths[0], tilesRoot());
     pushRecentFile(res.filePaths[0]);
-    watchFile(res.filePaths[0]);
     return opened;
   });
 
   ipcMain.handle('open-path', async (_e, path: string) => {
     const opened = await readGeoFile(path, tilesRoot());
     pushRecentFile(path);
-    watchFile(path);
     return opened;
   });
 
   ipcMain.handle('save-file', async (_e, req: SaveRequest) => {
     try {
-      selfWriteUntil = Date.now() + 1500; // suppress our own change event
       await writeGeoFile(
         req.path,
         req.kml,
@@ -418,7 +398,6 @@ function registerIpc(): void {
         tilesRoot(),
       );
       pushRecentFile(req.path);
-      watchFile(req.path);
       return { ok: true, path: req.path };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
