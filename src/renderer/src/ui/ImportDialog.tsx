@@ -38,6 +38,8 @@ export function ImportDialog(): JSX.Element | null {
   const [fillOpacity, setFillOpacity] = useState(0.5);
   const [lineOpacity, setLineOpacity] = useState(1);
   const [lineWidth, setLineWidth] = useState(1);
+  // undefined = write no LabelStyle, i.e. the reader's default size.
+  const [labelScale, setLabelScale] = useState<number | undefined>(undefined);
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [categoryFolders, setCategoryFolders] = useState(true);
   const [editingCat, setEditingCat] = useState<number | null>(null);
@@ -156,6 +158,7 @@ export function ImportDialog(): JSX.Element | null {
         fillOpacity,
         lineOpacity,
         lineWidth,
+        labelScale,
       });
       setImportStatus(`Imported ${count.toLocaleString()} features from ${layer.name}`);
       setTimeout(() => useStore.getState().setImportStatus(null), 4000);
@@ -448,6 +451,23 @@ export function ImportDialog(): JSX.Element | null {
           />
           <span className="opacity-val">px</span>
         </label>
+        {isPoint && (
+          <label className="insp-row">
+            <span>Label size</span>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="0.1"
+              placeholder="default"
+              value={labelScale ?? ''}
+              onChange={(e) =>
+                setLabelScale(e.target.value === '' ? undefined : Number(e.target.value))
+              }
+            />
+            <span className="opacity-val">×</span>
+          </label>
+        )}
         {showFill && (
           <label className="insp-row">
             <span>Fill</span>

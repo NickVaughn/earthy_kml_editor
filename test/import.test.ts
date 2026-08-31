@@ -9,6 +9,7 @@ import {
   defaultCategories,
   rampColor,
   sortSequentialValues,
+  buildStyle,
   RAMPS,
 } from '@renderer/model/geojson';
 import { KmlDocument } from '@renderer/model/document';
@@ -423,5 +424,17 @@ describe('colour ramps: turbo, reversal, sequential sorting', () => {
     const cats = defaultCategories(['a', 'b', 'c'], { ramp: 'turbo', rampReversed: true });
     expect(cats[0].color).toBe('#7a0403');
     expect(cats[2].color).toBe('#30123b');
+  });
+});
+
+describe('label size on import', () => {
+  it('writes no LabelStyle unless a size is requested', () => {
+    // Absent LabelStyle = the reader's default, which is what every import
+    // produced before label size was configurable.
+    expect(buildStyle('s1', '#4da6ff', {}).label).toBeUndefined();
+  });
+
+  it('carries the requested label scale into the built style', () => {
+    expect(buildStyle('s1', '#4da6ff', { labelScale: 1.6 }).label).toEqual({ scale: 1.6 });
   });
 });

@@ -93,6 +93,8 @@ export function RestyleDialog({
   const [fillOpacity, setFillOpacity] = useState(0.5);
   const [lineOpacity, setLineOpacity] = useState(1);
   const [lineWidth, setLineWidth] = useState(1);
+  // undefined = leave each style's existing label size alone.
+  const [labelScale, setLabelScale] = useState<number | undefined>(undefined);
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [editingCat, setEditingCat] = useState<number | null>(null);
 
@@ -144,12 +146,13 @@ export function RestyleDialog({
   const iconColor = common(t.styles.map((s) => s.icon?.color));
   const iconScale = common(t.styles.map((s) => s.icon?.scale));
   const lineWidthNow = common(t.styles.map((s) => s.line?.width));
+  const labelScaleNow = common(t.styles.map((s) => s.label?.scale));
 
   const singleDirty = Object.keys(patch).length > 0;
 
   const apply = (): void => {
     if (field) {
-      restyleByField(ids, field, categories, lineWidth);
+      restyleByField(ids, field, categories, lineWidth, labelScale);
     } else {
       if (!singleDirty) return;
       applyStyleTo(ids, patch);
@@ -269,6 +272,23 @@ export function RestyleDialog({
               />
               <span className="opacity-val">px</span>
             </label>
+            {t.hasPoint && (
+              <label className="insp-row">
+                <span>Label size</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  placeholder="unchanged"
+                  value={labelScale ?? ''}
+                  onChange={(e) =>
+                    setLabelScale(e.target.value === '' ? undefined : Number(e.target.value))
+                  }
+                />
+                <span className="opacity-val">×</span>
+              </label>
+            )}
 
             <div className="modal-summary">
               {categories.length} categor{categories.length === 1 ? 'y' : 'ies'} · click a swatch
@@ -319,6 +339,16 @@ export function RestyleDialog({
                     min="0"
                     defaultValue={iconScale ?? 1}
                     onChange={(e) => setSub('icon', { scale: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="insp-row">
+                  <span>Label size</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    defaultValue={labelScaleNow ?? 1}
+                    onChange={(e) => setSub('label', { scale: Number(e.target.value) })}
                   />
                 </label>
               </fieldset>

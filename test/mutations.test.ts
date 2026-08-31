@@ -218,3 +218,24 @@ describe('bulk style', () => {
     expect((out.match(/<Style\b/g) ?? []).length).toBe(1);
   });
 });
+
+describe('label size', () => {
+  it('applies a label scale and round-trips it through KML', () => {
+    const doc = KmlDocument.fromKml(generatePolygonKml(3));
+    doc.applyStyle([doc.root.id], { label: { scale: 2.5 } });
+
+    const out = serializeKml(doc.data);
+    expect(out).toContain('<LabelStyle>');
+    expect(out).toContain('<scale>2.5</scale>');
+
+    const reparsed = new KmlDocument(parseKml(out));
+    expect(reparsed.data.sharedStyles.get('s')?.label?.scale).toBe(2.5);
+  });
+
+  it('leaves other sub-styles untouched', () => {
+    const doc = KmlDocument.fromKml(generatePolygonKml(3));
+    const before = doc.data.sharedStyles.get('s')?.poly?.color;
+    doc.applyStyle([doc.root.id], { label: { scale: 1.4 } });
+    expect(doc.data.sharedStyles.get('s')?.poly?.color).toBe(before);
+  });
+});

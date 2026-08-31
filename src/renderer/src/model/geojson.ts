@@ -54,6 +54,8 @@ export interface ImportOptions {
   lineOpacity?: number;
   /** Outline width in pixels (default 2). */
   lineWidth?: number;
+  /** Placemark label size (<LabelStyle><scale>); omitted = reader's default. */
+  labelScale?: number;
   /** Base colour when styleMode === 'single' (hex, default blue). */
   singleColor?: string;
   /** Full style override when styleMode === 'single'. */
@@ -220,6 +222,8 @@ interface StyleParams {
   fillOpacity?: number;
   lineOpacity?: number;
   lineWidth?: number;
+  /** <LabelStyle><scale>: the placemark name's size, 1 = Google Earth default. */
+  labelScale?: number;
 }
 
 /** Build a shared style for one colour, honouring fill mode and opacities. */
@@ -238,6 +242,9 @@ export function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
       fill: showFill,
       outline: showOutline,
     },
+    // Only written when asked for: an absent LabelStyle means "the reader's
+    // default", which is what every existing import produced.
+    ...(p.labelScale !== undefined ? { label: { scale: p.labelScale } } : {}),
   };
 }
 
@@ -395,7 +402,13 @@ export function geojsonToFolder(
       const id = `earthy-cat-${suffix}-${i}`;
       styleIdByCategory.set(spec.value, id);
       labelByCategory.set(spec.value, spec.label || spec.value || '(blank)');
-      styles.push(buildStyle(id, spec.color, { ...spec, lineWidth: opts.lineWidth }));
+      styles.push(
+        buildStyle(id, spec.color, {
+          ...spec,
+          lineWidth: opts.lineWidth,
+          labelScale: opts.labelScale,
+        }),
+      );
     });
   } else {
     const id = `earthy-import-${suffix}`;

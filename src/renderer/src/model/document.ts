@@ -876,6 +876,7 @@ export class KmlDocument {
     field: string,
     specs: CategorySpec[],
     lineWidth?: number,
+    labelScale?: number,
   ): number {
     const targets = this.targetPlacemarks(ids);
     if (targets.length === 0 || specs.length === 0) return 0;
@@ -889,6 +890,7 @@ export class KmlDocument {
         fillOpacity: spec.fillOpacity,
         lineOpacity: spec.lineOpacity,
         lineWidth,
+        labelScale,
       });
     });
     const reg = this.styleRegistrar(styles);

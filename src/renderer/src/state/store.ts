@@ -110,7 +110,13 @@ interface AppState {
   /** Apply a uniform style patch to the placemarks under the given nodes. */
   applyStyleTo(ids: string[], patch: StylePatch): { patched: number; created: number };
   /** Recolour the placemarks under `ids` by a field value (categorized). */
-  restyleByField(ids: string[], field: string, specs: CategorySpec[], lineWidth?: number): number;
+  restyleByField(
+    ids: string[],
+    field: string,
+    specs: CategorySpec[],
+    lineWidth?: number,
+    labelScale?: number,
+  ): number;
   undo(): void;
   redo(): void;
 
@@ -411,14 +417,14 @@ export const useStore = create<AppState>((set, get) => {
       if (patched || created) bumpScene();
       return { patched, created };
     },
-    restyleByField(ids, field, specs, lineWidth) {
+    restyleByField(ids, field, specs, lineWidth, labelScale) {
       const byDoc = new Map<KmlDocument, string[]>();
       for (const id of ids) {
         const doc = get().docOf(id);
         if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
       }
       let n = 0;
-      for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth);
+      for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth, labelScale);
       if (n) bumpScene();
       return n;
     },
