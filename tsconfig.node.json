@@ -4,8 +4,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2023", "DOM"],
-    "types": ["node"],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -15,7 +20,9 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": [
+        "src/shared/*"
+      ]
     }
   },
   "include": [
@@ -23,6 +30,7 @@
     "src/preload/**/*",
     "src/shared/**/*",
     "electron.vite.config.ts",
-    "test/superoverlay.test.ts"
+    "test/superoverlay.test.ts",
+    "test/kmzicons.test.ts"
   ]
 }

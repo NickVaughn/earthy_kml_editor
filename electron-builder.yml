@@ -13,6 +13,9 @@ asarUnpack:
 extraResources:
   - from: resources/geoid
     to: geoid
+  # Point icons embedded into a KMZ, so an archive is self-contained offline.
+  - from: resources/icons
+    to: icons
 mac:
   category: public.app-category.utilities
   icon: build/icon.icns

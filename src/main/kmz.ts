@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { embedIcons, unembedIcons } from './icons';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import JSZip from 'jszip';
@@ -53,7 +54,9 @@ export async function readGeoFile(path: string, tilesDir = ''): Promise<OpenedFi
       entries.find((n) => n.toLowerCase().endsWith('.kml') && !n.includes('/')) ??
       entries.find((n) => n.toLowerCase().endsWith('.kml'));
     if (!kmlName) throw new Error('KMZ contains no .kml file');
-    const kml = await zip.files[kmlName].async('text');
+    // Relative icon paths mean nothing once the KML leaves the archive; point
+    // them back at the catalog's remote href.
+    const kml = unembedIcons(await zip.files[kmlName].async('text'));
 
     const resources: Record<string, string> = {};
     for (const name of entries) {
@@ -120,9 +123,12 @@ export async function writeGeoFile(
     await writeFile(path, kml, 'utf-8');
     return;
   }
+  // Catalog icons become archive-relative and travel with the file, so a KMZ
+  // renders correctly offline instead of fetching a shape URL.
+  const embedded = await embedIcons(kml, resources);
   const zip = new JSZip();
-  zip.file('doc.kml', kml);
-  for (const [name, dataUrl] of Object.entries(resources)) {
+  zip.file('doc.kml', embedded.kml);
+  for (const [name, dataUrl] of Object.entries(embedded.resources)) {
     zip.file(name, dataUrlToBuffer(dataUrl));
   }
   for (const t of tiled) addSuperOverlay(zip, tilesDir, t.hash, t.name);

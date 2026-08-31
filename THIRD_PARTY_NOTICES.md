@@ -141,6 +141,13 @@ H. F. Smith (NOAA), fetched from
 <https://www.soest.hawaii.edu/pwessel/gshhg/> at the user's request; it is not
 bundled with the application. GSHHG is distributed under the LGPL v3+.
 
+### Point icons — Earthy's own
+
+The icons embedded in a saved KMZ (`resources/icons/`) are drawn by
+`build/make-point-icons.py` and are part of Earthy, under the same license.
+They are shaped to match the long-standing Google KML shape URLs that plain
+`.kml` files reference by href, but they are not Google's artwork.
+
 ---
 
 *This is a good-faith starter notice, not legal advice. If you distribute Earthy
