@@ -21,11 +21,17 @@ export interface VectorInfo {
   driver: string;
   layers: LayerInfo[];
   /**
-   * Every column in a delimited-text file, in file order — including any the
-   * driver consumed as geometry. Only set for CSV-family files, so the import
-   * dialog can offer a coordinate-column picker when autodetection misses.
+   * Every column in a delimited-text file, in file order. Only set for
+   * CSV-family files, so the import dialog can offer a coordinate-column
+   * picker when autodetection misses.
    */
   csvColumns?: string[];
+  /**
+   * The subset of `csvColumns` that became geometry. They stay available as
+   * attributes, but the dialog unchecks them from the balloon by default —
+   * repeating a placemark's own coordinates back at the reader is noise.
+   */
+  csvGeometryColumns?: string[];
 }
 
 /**
@@ -51,15 +57,21 @@ export const CSV_X_NAMES = 'lon*,x,easting,east,xcoord,x_coord,gpslon*';
 export const CSV_Y_NAMES = 'lat*,y,northing,north,ycoord,y_coord,gpslat*';
 export const CSV_GEOM_NAMES = 'wkt,geom,geometry,the_geom';
 
-/** GDAL open options for a delimited-text file. */
-export function csvOpenOptions(csv?: CsvOptions): string[] {
+/**
+ * GDAL open options for a delimited-text file.
+ *
+ * `keepGeomColumns` leaves the coordinate columns in the attribute table as
+ * well as using them as geometry, which is the default: they are still the
+ * file's data, and the import dialog decides what reaches a balloon by
+ * unchecking them rather than by never having them. Passing false is how the
+ * inspector works out WHICH columns became geometry — the ones that disappear.
+ */
+export function csvOpenOptions(csv?: CsvOptions, keepGeomColumns = true): string[] {
   return [
     `X_POSSIBLE_NAMES=${csv?.xField || CSV_X_NAMES}`,
     `Y_POSSIBLE_NAMES=${csv?.yField || CSV_Y_NAMES}`,
     `GEOM_POSSIBLE_NAMES=${CSV_GEOM_NAMES}`,
-    // The coordinate columns become geometry; keeping them as attributes too
-    // just duplicates data into every placemark's description.
-    'KEEP_GEOM_COLUMNS=NO',
+    `KEEP_GEOM_COLUMNS=${keepGeomColumns ? 'YES' : 'NO'}`,
     'AUTODETECT_TYPE=YES',
   ];
 }

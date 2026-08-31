@@ -3,6 +3,7 @@ import { dirname, join, relative } from 'node:path';
 import {
   mkdtempSync,
   writeFileSync,
+  readFileSync,
   appendFileSync,
   rmSync,
   readdirSync,
@@ -122,6 +123,31 @@ function errText(e: unknown): string {
 }
 
 /**
+ * Column names from a delimited file's header row, in file order. Read
+ * directly rather than via GDAL so the order survives — GDAL reports fields in
+ * its own order once geometry columns are consumed.
+ */
+function allCsvColumns(path: string): string[] {
+  const head = readFileSync(path, 'utf8').split(/\r?\n/)[0] ?? '';
+  const delim = head.includes('\t') ? '\t' : head.includes(';') ? ';' : ',';
+  const out: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < head.length; i++) {
+    const ch = head[i];
+    if (quoted) {
+      if (ch === '"' && head[i + 1] === '"') (cell += '"'), i++;
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === delim) (out.push(cell.trim()), (cell = ''));
+    else cell += ch;
+  }
+  out.push(cell.trim());
+  return out.filter((c) => c.length > 0);
+}
+
+/**
  * Open a vector file, teaching GDAL how to read coordinates out of delimited
  * text (which has no geometry of its own). Everything else opens plainly.
  */
@@ -190,23 +216,30 @@ async function inspectVector(
   const dataset = opened.datasets[0];
   const info = await Gdal.getInfo(dataset);
 
-  // Delimited text: also list every column as the file has them, so the
-  // dialog's coordinate picker can offer the ones autodetection consumed.
+  // Delimited text: the coordinate columns stay in the attribute table, so
+  // work out which ones became geometry by reading again WITHOUT keeping them
+  // and diffing. The dialog needs both lists — every column for the picker,
+  // and the geometry ones to uncheck from the balloon.
   let csvColumns: string[] | undefined;
+  let csvGeometryColumns: string[] | undefined;
   if (isDelimitedText(path)) {
     try {
-      const plain = await Gdal.open(path);
-      const plainInfo = await Gdal.getInfo(plain.datasets[0]);
+      const dropped = await Gdal.open(path, csvOpenOptions(csv, false));
+      const droppedInfo = await Gdal.getInfo(dropped.datasets[0]);
       // Declare a CRS even though only field NAMES matter here: without one,
       // toGeoJson's -t_srs has nothing to convert from and ogr2ogr aborts.
-      const sample = await toGeoJson(Gdal, plain.datasets[0], ['-s_srs', 'EPSG:4326'], [
+      const sample = await toGeoJson(Gdal, dropped.datasets[0], ['-s_srs', 'EPSG:4326'], [
         '-limit',
         '1',
-        plainInfo.layers?.[0]?.name,
+        droppedInfo.layers?.[0]?.name,
       ]);
-      csvColumns = Object.keys(sample.features[0]?.properties ?? {});
+      const withoutGeom = Object.keys(sample.features[0]?.properties ?? {});
+      csvColumns = allCsvColumns(path);
+      csvGeometryColumns = csvColumns.filter((c) => !withoutGeom.includes(c));
     } catch {
-      csvColumns = undefined; // best-effort; the picker just has fewer options
+      // Best-effort: the picker just falls back to the layer's own fields.
+      csvColumns = undefined;
+      csvGeometryColumns = undefined;
     }
   }
 
@@ -235,7 +268,7 @@ async function inspectVector(
     });
   }
   await Gdal.close(dataset).catch(() => undefined);
-  return { path, driver: info.driverName ?? 'unknown', layers, csvColumns };
+  return { path, driver: info.driverName ?? 'unknown', layers, csvColumns, csvGeometryColumns };
 }
 
 async function convertVector(

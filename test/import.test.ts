@@ -465,8 +465,14 @@ describe('delimited-text (CSV) coordinate handling', () => {
     expect(opts).toContain('Y_POSSIBLE_NAMES=Lat_DD');
   });
 
-  it('drops the coordinate columns from the attribute table', () => {
-    // Otherwise every placemark's description repeats its own coordinates.
-    expect(csvOpenOptions()).toContain('KEEP_GEOM_COLUMNS=NO');
+  it('keeps the coordinate columns as attributes by default', () => {
+    // They are still the file's data; the import dialog unchecks them from the
+    // balloon rather than the reader never seeing them at all.
+    expect(csvOpenOptions()).toContain('KEEP_GEOM_COLUMNS=YES');
+  });
+
+  it('can drop them, which is how the inspector identifies them', () => {
+    // Reading twice and diffing is what reveals WHICH columns became geometry.
+    expect(csvOpenOptions(undefined, false)).toContain('KEEP_GEOM_COLUMNS=NO');
   });
 });

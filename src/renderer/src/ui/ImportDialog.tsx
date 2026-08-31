@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@renderer/state/store';
 import { withGdalJob, GdalCancelled } from '@renderer/state/gdalJob';
 import {
@@ -77,6 +77,18 @@ export function ImportDialog(): JSX.Element | null {
   const hasCategories = !!categoryField;
   const needsFolderPage = !!groupField && groupField !== categoryField;
   const folderNameEditable = !groupField || groupField === categoryField;
+
+  // Coordinate columns stay in the attribute table (they are the file's data),
+  // but they are not balloon material: repeating a placemark's own coordinates
+  // back at the reader is noise. Uncheck them whenever the set changes — which
+  // includes the moment the user picks different ones. Checking them again
+  // afterwards is a deliberate act and survives, since the set has not moved.
+  const geomColumnKey = (pending?.info.csvGeometryColumns ?? []).join('|');
+  useEffect(() => {
+    if (!geomColumnKey) return;
+    const geom = geomColumnKey.split('|');
+    setDescFields((prev) => prev.filter((f) => !geom.includes(f)));
+  }, [geomColumnKey]);
 
   const categoryPreview = useMemo(() => {
     if (!layer || !categoryField) return [];
@@ -594,21 +606,33 @@ export function ImportDialog(): JSX.Element | null {
           <span>Balloon</span>
           <div className="field-col">
             <div className="field-actions">
-              <button onClick={() => setDescFields(layer.fields.map((f) => f.name))}>
+              <button
+                onClick={() =>
+                  setDescFields(
+                    layer.fields
+                      .map((f) => f.name)
+                      .filter((n) => !(pending.info.csvGeometryColumns ?? []).includes(n)),
+                  )
+                }
+              >
                 Check all
               </button>
               <button onClick={() => setDescFields([])}>Uncheck all</button>
             </div>
-            {layer.fields.map((f) => (
-              <label key={f.name} className="field-check">
-                <input
-                  type="checkbox"
-                  checked={descFields.includes(f.name)}
-                  onChange={() => toggleDesc(f.name)}
-                />
-                {f.name}
-              </label>
-            ))}
+            {layer.fields.map((f) => {
+              const isGeom = (pending.info.csvGeometryColumns ?? []).includes(f.name);
+              return (
+                <label key={f.name} className="field-check">
+                  <input
+                    type="checkbox"
+                    checked={descFields.includes(f.name)}
+                    onChange={() => toggleDesc(f.name)}
+                  />
+                  {f.name}
+                  {isGeom && <span className="muted"> · coordinate</span>}
+                </label>
+              );
+            })}
           </div>
         </div>
 
