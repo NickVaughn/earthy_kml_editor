@@ -14,6 +14,7 @@ import {
 } from '@renderer/model/geojson';
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
 import { isDelimitedText, type CsvOptions } from '@shared/gdal';
+import { POINT_ICONS, DEFAULT_ICON_HREF } from '@shared/icons';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
   { id: 'both', label: 'Outline + fill' },
@@ -41,6 +42,7 @@ export function ImportDialog(): JSX.Element | null {
   const [lineWidth, setLineWidth] = useState(1);
   // undefined = write no LabelStyle, i.e. the reader's default size.
   const [labelScale, setLabelScale] = useState<number | undefined>(undefined);
+  const [iconHref, setIconHref] = useState(DEFAULT_ICON_HREF);
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [categoryFolders, setCategoryFolders] = useState(true);
   const [editingCat, setEditingCat] = useState<number | null>(null);
@@ -217,6 +219,9 @@ export function ImportDialog(): JSX.Element | null {
         lineOpacity,
         lineWidth,
         labelScale,
+        // Only points draw an icon; writing one for a line/polygon layer would
+        // put an unused IconStyle href in every style.
+        iconHref: isPoint ? iconHref : undefined,
       });
       setImportStatus(`Imported ${count.toLocaleString()} features from ${layer.name}`);
       setTimeout(() => useStore.getState().setImportStatus(null), 4000);
@@ -570,6 +575,18 @@ export function ImportDialog(): JSX.Element | null {
           />
           <span className="opacity-val">px</span>
         </label>
+        {isPoint && (
+          <label className="insp-row">
+            <span>Icon</span>
+            <select value={iconHref} onChange={(e) => setIconHref(e.target.value)}>
+              {POINT_ICONS.map((i) => (
+                <option key={i.id} value={i.href}>
+                  {i.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {isPoint && (
           <label className="insp-row">
             <span>Label size</span>

@@ -877,6 +877,7 @@ export class KmlDocument {
     specs: CategorySpec[],
     lineWidth?: number,
     labelScale?: number,
+    iconHref?: string,
   ): number {
     const targets = this.targetPlacemarks(ids);
     if (targets.length === 0 || specs.length === 0) return 0;
@@ -891,6 +892,7 @@ export class KmlDocument {
         lineOpacity: spec.lineOpacity,
         lineWidth,
         labelScale,
+        iconHref,
       });
     });
     const reg = this.styleRegistrar(styles);

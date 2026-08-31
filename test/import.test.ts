@@ -17,6 +17,7 @@ import { serializeKml } from '@renderer/model/serialize';
 import { parseKml } from '@renderer/model/parse';
 import { fixture } from './helpers';
 import { csvOpenOptions, isDelimitedText } from '@shared/gdal';
+import { DEFAULT_ICON_HREF, iconChoiceByHref, embeddedIconPath } from '@shared/icons';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PARCELS = readFileSync(join(here, 'fixtures/vector/parcels.geojson'), 'utf-8');
@@ -474,5 +475,34 @@ describe('delimited-text (CSV) coordinate handling', () => {
   it('can drop them, which is how the inspector identifies them', () => {
     // Reading twice and diffing is what reveals WHICH columns became geometry.
     expect(csvOpenOptions(undefined, false)).toContain('KEEP_GEOM_COLUMNS=NO');
+  });
+});
+
+describe('point icon href', () => {
+  it('writes no Icon href unless one is asked for', () => {
+    // Line/polygon layers get no IconStyle href — it would never be drawn.
+    expect(buildStyle('s1', '#4da6ff', {}).icon?.iconHref).toBeUndefined();
+  });
+
+  it('writes the requested icon', () => {
+    const s = buildStyle('s1', '#4da6ff', { iconHref: DEFAULT_ICON_HREF });
+    expect(s.icon?.iconHref).toBe(DEFAULT_ICON_HREF);
+  });
+
+  it('defaults to a circle, not the reader default', () => {
+    // An absent href means Google Earth's yellow pushpin, tinted by the
+    // style colour — which is neither the shape nor the colour Earthy shows.
+    expect(DEFAULT_ICON_HREF).toContain('placemark_circle');
+  });
+
+  it('matches an href back to its catalog entry regardless of spelling', () => {
+    expect(iconChoiceByHref(DEFAULT_ICON_HREF)?.id).toBe('circle');
+    // http vs https, and the KMZ-relative form, are the same icon.
+    expect(iconChoiceByHref('http://maps.google.com/mapfiles/kml/shapes/donut.png')?.id).toBe(
+      'donut',
+    );
+    expect(iconChoiceByHref(embeddedIconPath('star'))?.id).toBe('star');
+    expect(iconChoiceByHref(undefined)).toBeUndefined();
+    expect(iconChoiceByHref('https://example.com/custom.png')).toBeUndefined();
   });
 });

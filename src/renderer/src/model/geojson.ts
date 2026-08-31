@@ -56,6 +56,8 @@ export interface ImportOptions {
   lineWidth?: number;
   /** Placemark label size (<LabelStyle><scale>); omitted = reader's default. */
   labelScale?: number;
+  /** Point icon href; omitted = the reader's default icon. */
+  iconHref?: string;
   /** Base colour when styleMode === 'single' (hex, default blue). */
   singleColor?: string;
   /** Full style override when styleMode === 'single'. */
@@ -224,6 +226,12 @@ interface StyleParams {
   lineWidth?: number;
   /** <LabelStyle><scale>: the placemark name's size, 1 = Google Earth default. */
   labelScale?: number;
+  /**
+   * <IconStyle><Icon><href> for point features. Written explicitly because an
+   * absent href means "the reader's default icon" — a yellow pushpin in Google
+   * Earth, not the dot Earthy's globe draws.
+   */
+  iconHref?: string;
 }
 
 /** Build a shared style for one colour, honouring fill mode and opacities. */
@@ -235,7 +243,11 @@ export function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
   const fillAlpha = alphaByte(p.fillOpacity, 0x80);
   return {
     id,
-    icon: { color: hexToKml(hex, lineAlpha), scale: 1 },
+    icon: {
+      color: hexToKml(hex, lineAlpha),
+      scale: 1,
+      ...(p.iconHref ? { iconHref: p.iconHref } : {}),
+    },
     line: { color: hexToKml(hex, lineAlpha), width: p.lineWidth ?? 2 },
     poly: {
       color: hexToKml(hex, fillAlpha),
@@ -407,6 +419,7 @@ export function geojsonToFolder(
           ...spec,
           lineWidth: opts.lineWidth,
           labelScale: opts.labelScale,
+          iconHref: opts.iconHref,
         }),
       );
     });

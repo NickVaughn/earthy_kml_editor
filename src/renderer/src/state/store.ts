@@ -116,6 +116,7 @@ interface AppState {
     specs: CategorySpec[],
     lineWidth?: number,
     labelScale?: number,
+    iconHref?: string,
   ): number;
   undo(): void;
   redo(): void;
@@ -417,14 +418,14 @@ export const useStore = create<AppState>((set, get) => {
       if (patched || created) bumpScene();
       return { patched, created };
     },
-    restyleByField(ids, field, specs, lineWidth, labelScale) {
+    restyleByField(ids, field, specs, lineWidth, labelScale, iconHref) {
       const byDoc = new Map<KmlDocument, string[]>();
       for (const id of ids) {
         const doc = get().docOf(id);
         if (doc) (byDoc.get(doc) ?? byDoc.set(doc, []).get(doc)!).push(id);
       }
       let n = 0;
-      for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth, labelScale);
+      for (const [doc, docIds] of byDoc) n += doc.restyleByField(docIds, field, specs, lineWidth, labelScale, iconHref);
       if (n) bumpScene();
       return n;
     },

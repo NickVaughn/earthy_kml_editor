@@ -14,6 +14,7 @@ import {
   type FillMode,
   type CategorySpec,
 } from '@renderer/model/geojson';
+import { POINT_ICONS, DEFAULT_ICON_HREF, iconChoiceByHref } from '@shared/icons';
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
@@ -95,6 +96,7 @@ export function RestyleDialog({
   const [lineWidth, setLineWidth] = useState(1);
   // undefined = leave each style's existing label size alone.
   const [labelScale, setLabelScale] = useState<number | undefined>(undefined);
+  const [catIconHref, setCatIconHref] = useState(DEFAULT_ICON_HREF);
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [editingCat, setEditingCat] = useState<number | null>(null);
 
@@ -147,12 +149,20 @@ export function RestyleDialog({
   const iconScale = common(t.styles.map((s) => s.icon?.scale));
   const lineWidthNow = common(t.styles.map((s) => s.line?.width));
   const labelScaleNow = common(t.styles.map((s) => s.label?.scale));
+  const iconHrefNow = common(t.styles.map((s) => s.icon?.iconHref));
 
   const singleDirty = Object.keys(patch).length > 0;
 
   const apply = (): void => {
     if (field) {
-      restyleByField(ids, field, categories, lineWidth, labelScale);
+      restyleByField(
+        ids,
+        field,
+        categories,
+        lineWidth,
+        labelScale,
+        t.hasPoint ? catIconHref : undefined,
+      );
     } else {
       if (!singleDirty) return;
       applyStyleTo(ids, patch);
@@ -274,6 +284,21 @@ export function RestyleDialog({
             </label>
             {t.hasPoint && (
               <label className="insp-row">
+                <span>Icon</span>
+                <select
+                  value={catIconHref}
+                  onChange={(e) => setCatIconHref(e.target.value)}
+                >
+                  {POINT_ICONS.map((i) => (
+                    <option key={i.id} value={i.href}>
+                      {i.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {t.hasPoint && (
+              <label className="insp-row">
                 <span>Label size</span>
                 <input
                   type="number"
@@ -331,6 +356,26 @@ export function RestyleDialog({
                   indeterminate={iconColor === undefined && !patch.icon?.color}
                   onChange={(c) => setSub('icon', { color: c })}
                 />
+                <label className="insp-row">
+                  <span>Icon</span>
+                  <select
+                    value={patch.icon?.iconHref ?? iconHrefNow ?? ''}
+                    onChange={(e) => setSub('icon', { iconHref: e.target.value })}
+                  >
+                    {/* Present only until something is chosen: an existing file
+                        may use an icon Earthy does not offer, or none at all. */}
+                    {!iconChoiceByHref(patch.icon?.iconHref ?? iconHrefNow) && (
+                      <option value="">
+                        {iconHrefNow ? '(current icon)' : '(reader default — pushpin)'}
+                      </option>
+                    )}
+                    {POINT_ICONS.map((i) => (
+                      <option key={i.id} value={i.href}>
+                        {i.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="insp-row">
                   <span>Scale</span>
                   <input
