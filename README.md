@@ -4,7 +4,7 @@ A lean, cross-platform desktop **KML/KMZ viewer and editor** — a small,
 self-hostable alternative for looking at and editing placemarks, paths, and
 polygons on a 3D globe.
 
-> ⚠️ **Work in progress.** This is early software (currently `v0.2.0`). Editing
+> ⚠️ **Work in progress.** This is early software (currently `v0.3.0`). Editing
 > is functional, but expect rough edges, missing features, and breaking changes.
 > There are no stability or data-safety guarantees yet — keep backups of any KML
 > you care about.

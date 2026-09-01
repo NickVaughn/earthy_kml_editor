@@ -1,6 +1,6 @@
 {
   "name": "earthy",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Earthy \u2014 a lean cross-platform desktop KML/KMZ viewer and editor",
   "main": "out/main/index.js",
   "author": "NickVaughn",
