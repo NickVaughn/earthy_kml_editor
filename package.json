@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "make": "npm run build && electron-builder --mac dmg --config electron-builder.yml",
+    "make:win": "npm run build && electron-builder --win nsis --config electron-builder.yml --publish never",
     "install-local": "npm run build && electron-builder --mac dir --config electron-builder.yml && bash build/install-local.sh"
   },
   "dependencies": {

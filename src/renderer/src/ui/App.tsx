@@ -8,6 +8,7 @@ import type { AppSettings } from '@shared/ipc';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
 import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
 import { isVectorPath, isRasterPath } from '@shared/gdal';
+import { baseName } from '@shared/paths';
 import { useKeybindings } from '@renderer/input/useKeybindings';
 import { withGdalJob, GdalCancelled, gdalJobActive } from '@renderer/state/gdalJob';
 import { tiledOverlayInfo } from '@renderer/model/overlays';
@@ -340,7 +341,7 @@ export function App(): JSX.Element {
   const loadRaster = useCallback(async (path: string) => {
     const globe = globeRef.current;
     if (!globe) return;
-    const name = path.split('/').pop() ?? path;
+    const name = baseName(path);
     const st = useStore.getState();
     try {
       // Work out the whole cost first — reprojected size, whether the codec
@@ -517,7 +518,7 @@ export function App(): JSX.Element {
     );
 
     if (!path || forceDialog) {
-      const stem = (path?.split('/').pop() ?? `${doc.root.name || 'untitled'}.kml`).replace(
+      const stem = (path ? baseName(path) : `${doc.root.name || 'untitled'}.kml`).replace(
         /\.(kml|kmz)$/i,
         '',
       );
@@ -581,7 +582,7 @@ export function App(): JSX.Element {
         } else if (isVectorPath(p)) {
           // Any other OGR-readable vector: inspect, then offer import options.
           try {
-            const info = await withGdalJob(`Reading ${p.split('/').pop()}…`, () =>
+            const info = await withGdalJob(`Reading ${baseName(p)}…`, () =>
               window.api.inspectVector(p),
             );
             useStore.getState().setImportStatus(null);
@@ -590,9 +591,9 @@ export function App(): JSX.Element {
           } catch (err) {
             useStore.getState().setImportStatus(null);
             if (err instanceof GdalCancelled) {
-              flash(`Cancelled reading ${p.split('/').pop()}.`);
+              flash(`Cancelled reading ${baseName(p)}.`);
             } else {
-              alert(`Could not read ${p.split('/').pop()}: ${
+              alert(`Could not read ${baseName(p)}: ${
                 err instanceof Error ? err.message : String(err)
               }`);
             }
@@ -601,7 +602,7 @@ export function App(): JSX.Element {
           await loadRaster(p);
         } else {
           // Don't swallow the drop silently — say why nothing happened.
-          flash(`Unsupported file type: ${p.split('/').pop()}`);
+          flash(`Unsupported file type: ${baseName(p)}`);
         }
       }
     });

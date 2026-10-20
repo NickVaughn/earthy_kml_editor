@@ -1,5 +1,5 @@
 import { parentPort } from 'node:worker_threads';
-import { dirname, join, relative } from 'node:path';
+import { join } from 'node:path';
 import {
   mkdtempSync,
   writeFileSync,
@@ -26,6 +26,7 @@ import type {
 // Relative, not '@shared': this is a runtime import and the worker bundle
 // resolves the alias for type-only imports.
 import { csvOpenOptions, isDelimitedText } from '../shared/gdal';
+import { initGdal } from './gdal-load';
 
 /**
  * GDAL/WASM worker. Runs in a worker_thread so long conversions never block the
@@ -49,22 +50,11 @@ function clearGdalMessages(): void {
 
 function loadGdal(): Promise<AnyGdal> {
   if (gdalPromise) return gdalPromise;
-  gdalPromise = (async () => {
-    // gdal3.js resolves its asset `path` relative to cwd (it prefixes './'),
-    // so we must hand it a RELATIVE path to dist/package.
-    const pkgJson = require.resolve('gdal3.js/package.json');
-    const distDir = join(dirname(pkgJson), 'dist', 'package');
-    const rel = relative(process.cwd(), distDir) || '.';
-    const initGdalJs = require('gdal3.js/node');
-    return initGdalJs({
-      path: rel,
-      errorHandler: (text: string) => {
-        gdalMessages.push(String(text).trim());
-        if (gdalMessages.length > 25) gdalMessages.shift();
-        console.error(`gdal: ${text}`);
-      },
-    });
-  })();
+  gdalPromise = initGdal((text: string) => {
+    gdalMessages.push(String(text).trim());
+    if (gdalMessages.length > 25) gdalMessages.shift();
+    console.error(`gdal: ${text}`);
+  });
   return gdalPromise;
 }
 

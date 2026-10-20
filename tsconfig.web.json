@@ -39,6 +39,7 @@
   ],
   "exclude": [
     "test/superoverlay.test.ts",
-    "test/kmzicons.test.ts"
+    "test/kmzicons.test.ts",
+    "test/gdal.test.ts"
   ]
 }

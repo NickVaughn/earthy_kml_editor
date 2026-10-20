@@ -15,6 +15,7 @@ import {
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
 import { isDelimitedText, type CsvOptions } from '@shared/gdal';
 import { POINT_ICONS, DEFAULT_ICON_HREF } from '@shared/icons';
+import { baseName } from '@shared/paths';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
   { id: 'both', label: 'Outline + fill' },
@@ -243,7 +244,7 @@ export function ImportDialog(): JSX.Element | null {
   const updateCat = (i: number, patch: Partial<CategorySpec>): void =>
     setCategories((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
 
-  const fileName = pending.path.split('/').pop();
+  const fileName = baseName(pending.path);
 
   // ---- Page 2: per-category fine-tuning -----------------------------------
   if (step === 2) {
