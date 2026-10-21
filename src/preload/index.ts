@@ -27,6 +27,12 @@ const api: Api = {
   getStylePresets: () => ipcRenderer.invoke('get-style-presets'),
   saveStylePreset: (preset) => ipcRenderer.invoke('save-style-preset', preset),
   deleteStylePreset: (name) => ipcRenderer.invoke('delete-style-preset', name),
+  exportStylePresets: (names) => ipcRenderer.invoke('export-style-presets', names),
+  onStylePresetsChanged: (cb) => {
+    const listener = (_e: unknown, p: import('@shared/stylePresets').StylePreset[]) => cb(p);
+    ipcRenderer.on('style-presets-changed', listener);
+    return () => ipcRenderer.removeListener('style-presets-changed', listener);
+  },
   onOpenRequested: (cb) => {
     const listener = (_e: unknown, path: string) => cb(path);
     ipcRenderer.on('open-requested', listener);

@@ -20,6 +20,7 @@ import {
   deleteStylePreset,
 } from './settings';
 import { getGeoidGrid } from './geoid';
+import { exportStylePresets, importStylePresets } from './presetFiles';
 import { apiKey, openKeysFile } from './keys';
 import {
   inspectVector,
@@ -339,6 +340,15 @@ function buildMenu(): void {
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenu('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenu('saveAs') },
         { type: 'separator' },
+        {
+          label: 'Import Style Presets…',
+          click: () => mainWindow && void importStylePresets(mainWindow),
+        },
+        {
+          label: 'Export Style Presets…',
+          click: () => mainWindow && void exportStylePresets(mainWindow),
+        },
+        { type: 'separator' },
         { label: 'API Keys…', click: () => void openKeysFile() },
         { label: 'Clear Tile Cache…', click: () => sendMenu('clearTiles') },
         { type: 'separator' },
@@ -516,6 +526,9 @@ function registerIpc(): void {
   ipcMain.handle('get-style-presets', () => getStylePresets());
   ipcMain.handle('save-style-preset', (_e, preset: StylePreset) => saveStylePreset(preset));
   ipcMain.handle('delete-style-preset', (_e, name: string) => deleteStylePreset(name));
+  ipcMain.handle('export-style-presets', (_e, names?: string[]) =>
+    exportStylePresets(mainWindow!, names),
+  );
 }
 
 // Capture a path passed as an argv (Windows/Linux file association).

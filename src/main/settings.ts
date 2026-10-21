@@ -57,6 +57,11 @@ export function saveStylePreset(preset: StylePreset): StylePreset[] {
   return current;
 }
 
+/** Replace the whole saved list (after merging in an imported file). */
+export function setStylePresets(presets: StylePreset[]): void {
+  store.set('stylePresets', presets);
+}
+
 export function deleteStylePreset(name: string): StylePreset[] {
   const next = getStylePresets().filter((p) => p.name !== name);
   store.set('stylePresets', next);

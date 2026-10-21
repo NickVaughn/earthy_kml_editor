@@ -6,7 +6,8 @@ import { NAME_FIELD } from '@renderer/model/geojson';
 /**
  * Saved presets, held in one small store so a preset saved from the restyle
  * dialog is immediately offered by the import dialog (which stays mounted).
- * Loaded from settings on first use.
+ * Loaded from settings on first use, then kept current when File ▸ Import
+ * Style Presets… changes the list from main.
  */
 const usePresetStore = create<{ presets: StylePreset[]; loaded: boolean }>(() => ({
   presets: [],
@@ -24,6 +25,7 @@ export function useStylePresets(): {
     if (usePresetStore.getState().loaded) return;
     usePresetStore.setState({ loaded: true });
     void window.api.getStylePresets().then((p) => usePresetStore.setState({ presets: p }));
+    window.api.onStylePresetsChanged((p) => usePresetStore.setState({ presets: p }));
   }, []);
 
   return {
@@ -42,7 +44,7 @@ export function useStylePresets(): {
 
 const fieldLabel = (field: string): string => (field === NAME_FIELD ? 'Name' : field);
 
-/** "Preset" row: pick a saved mapping to apply, or delete the picked one. */
+/** "Preset" row: pick a saved mapping to apply; export or delete the picked one. */
 export function PresetPicker({
   presets,
   value,
@@ -71,15 +73,28 @@ export function PresetPicker({
         ))}
       </select>
       {value && (
-        <button
-          className="preset-btn"
-          title="Delete this saved preset"
-          onClick={() => {
-            if (confirm(`Delete the saved preset “${value}”?`)) onDelete(value);
-          }}
-        >
-          Delete
-        </button>
+        <>
+          <button
+            className="preset-btn"
+            title="Save this preset to a file to share it (File ▸ Import Style Presets… reads it)"
+            onClick={() =>
+              window.api
+                .exportStylePresets([value])
+                .catch((err) => alert(`Export failed: ${err instanceof Error ? err.message : err}`))
+            }
+          >
+            Export…
+          </button>
+          <button
+            className="preset-btn"
+            title="Delete this saved preset"
+            onClick={() => {
+              if (confirm(`Delete the saved preset “${value}”?`)) onDelete(value);
+            }}
+          >
+            Delete
+          </button>
+        </>
       )}
     </div>
   );

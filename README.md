@@ -36,7 +36,9 @@ It works and it's tested, but it's a hobby/learning artifact first.
 - Save a colour-by-field mapping (per-value colours, labels and opacities) as a
   named **style preset**, from either the import or the restyle dialog, and
   apply it to another layer or import. Values are matched by field value;
-  ones the preset doesn't know are styled from its ramp.
+  ones the preset doesn't know are styled from its ramp. Presets travel as
+  small JSON files for sharing — **File ▸ Export / Import Style Presets…**, or
+  **Export…** beside a picked preset for just that one.
 - Edit names and descriptions; per-feature balloons.
 - Import other vector formats (via GDAL) with categorized styling.
 - **Import rasters** (GeoTIFF and friends). Small ones drape as a single image

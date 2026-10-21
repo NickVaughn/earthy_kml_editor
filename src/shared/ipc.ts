@@ -122,6 +122,12 @@ export interface Api {
     preset: import('./stylePresets').StylePreset,
   ): Promise<import('./stylePresets').StylePreset[]>;
   deleteStylePreset(name: string): Promise<import('./stylePresets').StylePreset[]>;
+  /** Save the named presets (all, if omitted) to a file the user picks; its path, or null. */
+  exportStylePresets(names?: string[]): Promise<string | null>;
+  /** Presets changed outside the renderer (File ▸ Import Style Presets…). */
+  onStylePresetsChanged(
+    cb: (presets: import('./stylePresets').StylePreset[]) => void,
+  ): () => void;
   /** Register a listener for "open this file" events pushed from main (menu/file assoc). */
   onOpenRequested(cb: (path: string) => void): () => void;
   onMenuAction(cb: (action: string) => void): () => void;

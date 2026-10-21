@@ -1,21 +1,24 @@
 /**
  * Saved field-style mappings ("style presets"): a colour-by-field setup from
  * the import or restyle dialog, kept in the app's settings so it can be
- * applied to another layer or import. Types only, so main and the renderer
- * can both import it.
+ * applied to another layer or import. Dependency-free, so main and the
+ * renderer can both import it.
  */
 
 /** How a feature's polygon/line styling is drawn. */
-export type FillMode = 'outline' | 'fill' | 'both';
+export const FILL_MODE_NAMES = ['outline', 'fill', 'both'] as const;
+export type FillMode = (typeof FILL_MODE_NAMES)[number];
 
-export type RampName =
-  | 'category'
-  | 'rainbow'
-  | 'viridis'
-  | 'turbo'
-  | 'warm'
-  | 'cool'
-  | 'grayscale';
+export const RAMP_NAMES = [
+  'category',
+  'rainbow',
+  'viridis',
+  'turbo',
+  'warm',
+  'cool',
+  'grayscale',
+] as const;
+export type RampName = (typeof RAMP_NAMES)[number];
 
 /** A per-category style + label the user can fine-tune before import. */
 export interface CategorySpec {
