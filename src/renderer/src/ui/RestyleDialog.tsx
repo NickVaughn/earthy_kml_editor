@@ -15,7 +15,10 @@ import {
   type CategorySpec,
 } from '@renderer/model/geojson';
 import { POINT_ICONS, DEFAULT_ICON_HREF, iconChoiceByHref } from '@shared/icons';
+import type { StylePreset } from '@shared/stylePresets';
+import { categoriesFromPreset, describeMatch } from '@renderer/model/stylePresets';
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
+import { useStylePresets, PresetPicker, SavePresetRow } from './StylePresets';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
   { id: 'both', label: 'Outline + fill' },
@@ -100,6 +103,11 @@ export function RestyleDialog({
   const [categories, setCategories] = useState<CategorySpec[]>([]);
   const [editingCat, setEditingCat] = useState<number | null>(null);
 
+  // A saved mapping to seed categories from, and how well it fitted.
+  const { presets, save: savePreset, remove: removePreset } = useStylePresets();
+  const [preset, setPreset] = useState<StylePreset | null>(null);
+  const [presetNote, setPresetNote] = useState('');
+
   const distinct = useMemo(() => {
     if (!field) return [];
     const out: string[] = [];
@@ -114,17 +122,39 @@ export function RestyleDialog({
     return out;
   }, [field, t.nodes]);
 
-  // Seed category specs when the field (or its set of values) changes. The
-  // global knobs below patch the seeded categories in place rather than
-  // reseeding, so per-category fine-tuning survives.
+  // Seed category specs when the field (or its set of values, or the preset)
+  // changes. The global knobs below patch the seeded categories in place
+  // rather than reseeding, so per-category fine-tuning survives.
   useEffect(() => {
-    if (field) {
-      setCategories(
-        defaultCategories(distinct, { ramp, rampReversed, fillMode, fillOpacity, lineOpacity }),
-      );
-      setEditingCat(null);
+    if (!field) return;
+    const knobs = { ramp, rampReversed, fillMode, fillOpacity, lineOpacity };
+    if (preset) {
+      const m = categoriesFromPreset(distinct, preset, knobs);
+      setCategories(m.categories);
+      setPresetNote(describeMatch(preset.name, m));
+    } else {
+      setCategories(defaultCategories(distinct, knobs));
+      setPresetNote('');
     }
-  }, [field, distinct]);
+    setEditingCat(null);
+  }, [field, distinct, preset]);
+
+  /** Adopt a preset's field (if this selection has it) and its settings. */
+  const pickPreset = (p: StylePreset | null): void => {
+    setPreset(p);
+    if (!p) return;
+    if (p.field === NAME_FIELD || t.fields.includes(p.field)) setField(p.field);
+    setRamp(p.ramp);
+    setRampReversed(p.rampReversed);
+    setFillMode(p.fillMode);
+    setFillOpacity(p.fillOpacity);
+    setLineOpacity(p.lineOpacity);
+    setLineWidth(p.lineWidth);
+    setLabelScale(p.labelScale);
+    if (p.iconHref) setCatIconHref(p.iconHref);
+  };
+  const presetFieldMissing =
+    !!preset && preset.field !== NAME_FIELD && !t.fields.includes(preset.field);
 
   const patchAllCategories = (p: Partial<CategorySpec>): void =>
     setCategories((prev) => prev.map((c) => ({ ...c, ...p })));
@@ -152,6 +182,21 @@ export function RestyleDialog({
   const iconHrefNow = common(t.styles.map((s) => s.icon?.iconHref));
 
   const singleDirty = Object.keys(patch).length > 0;
+
+  const saveCurrent = (name: string): Promise<boolean> =>
+    savePreset({
+      name,
+      field,
+      ramp,
+      rampReversed,
+      fillMode,
+      fillOpacity,
+      lineOpacity,
+      lineWidth,
+      labelScale,
+      iconHref: t.hasPoint ? catIconHref : undefined,
+      categories,
+    });
 
   const apply = (): void => {
     if (field) {
@@ -193,6 +238,22 @@ export function RestyleDialog({
               ))}
             </select>
           </label>
+        )}
+        {canCategorize && (
+          <PresetPicker
+            presets={presets}
+            value={preset?.name ?? ''}
+            onPick={pickPreset}
+            onDelete={(name) => {
+              void removePreset(name);
+              pickPreset(null);
+            }}
+          />
+        )}
+        {presetFieldMissing && (
+          <div className="modal-summary">
+            No “{preset.field}” field here — pick a Colour by field to apply the preset to.
+          </div>
         )}
 
         {field ? (
@@ -316,6 +377,12 @@ export function RestyleDialog({
             )}
 
             <div className="modal-summary">
+              {presetNote && (
+                <>
+                  {presetNote}
+                  <br />
+                </>
+              )}
               {categories.length} categor{categories.length === 1 ? 'y' : 'ies'} · click a swatch
               to fine-tune
             </div>
@@ -344,6 +411,11 @@ export function RestyleDialog({
                 </div>
               ))}
             </div>
+            <SavePresetRow
+              key={`${preset?.name ?? ''}|${field}`}
+              defaultName={preset?.name ?? (field === NAME_FIELD ? 'Name' : field)}
+              onSave={saveCurrent}
+            />
           </>
         ) : (
           <>

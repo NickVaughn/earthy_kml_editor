@@ -24,6 +24,9 @@ const api: Api = {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (partial) => ipcRenderer.invoke('set-settings', partial),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
+  getStylePresets: () => ipcRenderer.invoke('get-style-presets'),
+  saveStylePreset: (preset) => ipcRenderer.invoke('save-style-preset', preset),
+  deleteStylePreset: (name) => ipcRenderer.invoke('delete-style-preset', name),
   onOpenRequested: (cb) => {
     const listener = (_e: unknown, path: string) => cb(path);
     ipcRenderer.on('open-requested', listener);

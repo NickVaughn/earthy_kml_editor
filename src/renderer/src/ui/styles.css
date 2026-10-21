@@ -590,6 +590,26 @@ body,
   height: 22px;
 }
 
+/* Saved style presets (restyle + import dialogs) */
+.preset-btn {
+  flex: 0 0 auto;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.preset-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.modal .insp-row > .preset-note {
+  width: auto;
+  font-size: 11px;
+}
+
 /* Description dialog */
 .desc-editor {
   width: 100%;

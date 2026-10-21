@@ -15,6 +15,9 @@ import {
   setSettings,
   getRecentFiles,
   pushRecentFile,
+  getStylePresets,
+  saveStylePreset,
+  deleteStylePreset,
 } from './settings';
 import { getGeoidGrid } from './geoid';
 import { apiKey, openKeysFile } from './keys';
@@ -35,6 +38,7 @@ import {
 } from './gdal';
 import type { SaveRequest, GoogleMapType, AppSettings } from '@shared/ipc';
 import type { CsvOptions } from '@shared/gdal';
+import type { StylePreset } from '@shared/stylePresets';
 import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
 
 let mainWindow: BrowserWindow | null = null;
@@ -509,6 +513,9 @@ function registerIpc(): void {
   ipcMain.handle('get-settings', () => getSettings());
   ipcMain.handle('set-settings', (_e, partial) => setSettings(partial));
   ipcMain.handle('get-recent-files', () => getRecentFiles());
+  ipcMain.handle('get-style-presets', () => getStylePresets());
+  ipcMain.handle('save-style-preset', (_e, preset: StylePreset) => saveStylePreset(preset));
+  ipcMain.handle('delete-style-preset', (_e, name: string) => deleteStylePreset(name));
 }
 
 // Capture a path passed as an argv (Windows/Linux file association).

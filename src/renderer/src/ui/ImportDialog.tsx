@@ -3,7 +3,6 @@ import { useStore } from '@renderer/state/store';
 import { withGdalJob, GdalCancelled } from '@renderer/state/gdalJob';
 import {
   RAMPS,
-  rampColor,
   defaultCategories,
   distinctCategoryValues,
   isSequentialRamp,
@@ -12,9 +11,12 @@ import {
   type FillMode,
   type CategorySpec,
 } from '@renderer/model/geojson';
+import { categoriesFromPreset, describeMatch } from '@renderer/model/stylePresets';
 import { StyleSwatch, CategoryEditor } from './CategoryEditor';
+import { useStylePresets, PresetPicker, SavePresetRow } from './StylePresets';
 import { isDelimitedText, type CsvOptions } from '@shared/gdal';
 import { POINT_ICONS, DEFAULT_ICON_HREF } from '@shared/icons';
+import type { StylePreset } from '@shared/stylePresets';
 
 const FILL_MODES: { id: FillMode; label: string }[] = [
   { id: 'both', label: 'Outline + fill' },
@@ -49,6 +51,12 @@ export function ImportDialog(): JSX.Element | null {
   // Custom folder names when grouping by a field other than the colour field.
   const [groupNames, setGroupNames] = useState<{ value: string; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // A saved mapping to seed categories from. Like the style settings above it
+  // survives from one import to the next, so a batch of files can share it.
+  const { presets, save: savePreset, remove: removePreset } = useStylePresets();
+  const [preset, setPreset] = useState<StylePreset | null>(null);
+  const [presetNote, setPresetNote] = useState('');
 
   // Delimited text has no geometry or CRS of its own. GDAL autodetects the
   // usual coordinate column names on the first read; these override it when it
@@ -92,16 +100,56 @@ export function ImportDialog(): JSX.Element | null {
     setDescFields((prev) => prev.filter((f) => !geom.includes(f)));
   }, [geomColumnKey]);
 
+  const knobs = { ramp, rampReversed, fillMode, fillOpacity, lineOpacity };
+
   const categoryPreview = useMemo(() => {
     if (!layer || !categoryField) return [];
     const f = layer.fields.find((x) => x.name === categoryField);
-    const values = f ? [...new Set(f.samples)] : [];
+    let values = f ? [...new Set(f.samples)] : [];
     // Sequential ramps map an ORDER, so preview (and later seed) the values
     // sorted; the qualitative palette keeps first-seen order.
-    return isSequentialRamp(ramp) ? sortSequentialValues(values) : values;
-  }, [layer, categoryField, ramp]);
+    if (isSequentialRamp(ramp)) values = sortSequentialValues(values);
+    return preset
+      ? categoriesFromPreset(values, preset, knobs).categories
+      : defaultCategories(values, knobs);
+  }, [layer, categoryField, ramp, rampReversed, preset]);
+
+  // Each new file: select the picked preset's field, if the file has one.
+  const layerKey = pending ? `${pending.path}|${layerIdx}` : '';
+  useEffect(() => {
+    if (preset && layer?.fields.some((f) => f.name === preset.field)) {
+      setCategoryField(preset.field);
+    }
+  }, [layerKey]);
 
   if (!pending || !layer) return null;
+
+  /** Adopt a preset's field (if this layer has it) and its settings. */
+  const pickPreset = (p: StylePreset | null): void => {
+    setPreset(p);
+    if (!p) return;
+    if (layer.fields.some((f) => f.name === p.field)) setCategoryField(p.field);
+    setRamp(p.ramp);
+    setRampReversed(p.rampReversed);
+    setFillMode(p.fillMode);
+    setFillOpacity(p.fillOpacity);
+    setLineOpacity(p.lineOpacity);
+    setLineWidth(p.lineWidth);
+    setLabelScale(p.labelScale);
+    if (p.iconHref) setIconHref(p.iconHref);
+  };
+  const presetFieldMissing = !!preset && !layer.fields.some((f) => f.name === preset.field);
+
+  const saveCurrent = (name: string): Promise<boolean> =>
+    savePreset({
+      name,
+      field: categoryField,
+      ...knobs,
+      lineWidth,
+      labelScale,
+      iconHref: isPoint ? iconHref : undefined,
+      categories,
+    });
 
   const close = (): void => {
     setPending(null);
@@ -163,9 +211,14 @@ export function ImportDialog(): JSX.Element | null {
       const geojson = await convert();
       let values = distinctCategoryValues(geojson, categoryField);
       if (isSequentialRamp(ramp)) values = sortSequentialValues(values);
-      setCategories(
-        defaultCategories(values, { ramp, rampReversed, fillMode, fillOpacity, lineOpacity }),
-      );
+      if (preset) {
+        const m = categoriesFromPreset(values, preset, knobs);
+        setCategories(m.categories);
+        setPresetNote(describeMatch(preset.name, m));
+      } else {
+        setCategories(defaultCategories(values, knobs));
+        setPresetNote('');
+      }
       setImportStatus(null);
       setStep(2);
     } catch (err) {
@@ -260,6 +313,12 @@ export function ImportDialog(): JSX.Element | null {
             {!folderNameEditable && (
               <> Folder names are set on the next page.</>
             )}
+            {presetNote && (
+              <>
+                <br />
+                {presetNote}
+              </>
+            )}
           </div>
 
           <label className="field-check" style={{ margin: '2px 0 8px' }}>
@@ -304,6 +363,11 @@ export function ImportDialog(): JSX.Element | null {
               </div>
             ))}
           </div>
+          <SavePresetRow
+            key={`${preset?.name ?? ''}|${categoryField}`}
+            defaultName={preset?.name ?? categoryField}
+            onSave={saveCurrent}
+          />
 
           <div className="modal-actions">
             <button onClick={() => setStep(1)} disabled={busy}>
@@ -498,6 +562,21 @@ export function ImportDialog(): JSX.Element | null {
             ))}
           </select>
         </label>
+        <PresetPicker
+          presets={presets}
+          value={preset?.name ?? ''}
+          onPick={pickPreset}
+          onDelete={(name) => {
+            void removePreset(name);
+            setPreset(null);
+          }}
+        />
+        {presetFieldMissing && (
+          <div className="modal-summary">
+            No “{preset.field}” field in this layer — pick a Colour by field to apply the
+            preset to.
+          </div>
+        )}
 
         {categoryField ? (
           <>
@@ -523,14 +602,10 @@ export function ImportDialog(): JSX.Element | null {
             )}
             {categoryPreview.length > 0 && (
               <div className="cat-preview">
-                {categoryPreview.map((v, i) => (
-                  <span key={v} className="cat-chip">
-                    <i
-                      style={{
-                        background: rampColor(ramp, i, categoryPreview.length, rampReversed),
-                      }}
-                    />
-                    {v || '(blank)'}
+                {categoryPreview.map((c) => (
+                  <span key={c.value} className="cat-chip">
+                    <i style={{ background: c.color }} />
+                    {c.value || '(blank)'}
                   </span>
                 ))}
                 <span className="muted"> …fine-tune each on the next page</span>

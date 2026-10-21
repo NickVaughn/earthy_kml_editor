@@ -1,5 +1,10 @@
 import { nextId } from './ids';
 import type { KmlNode, KmlStyle, Geometry, Position } from './types';
+import type { FillMode, RampName, CategorySpec } from '@shared/stylePresets';
+
+// Defined in shared so saved style presets can carry them; re-exported here,
+// where the rest of the styling vocabulary lives.
+export type { FillMode, RampName, CategorySpec };
 
 /** Sentinel "field" that means a placemark's <name> (for grouping/restyling). */
 export const NAME_FIELD = '$name';
@@ -19,9 +24,6 @@ export function placemarkFieldValue(node: KmlNode, field: string): string {
  * GDAL) into a KML folder of placemarks, with attribute-driven naming,
  * description tables, and either a single style or one style per category.
  */
-
-/** How a feature's polygon/line styling is drawn. */
-export type FillMode = 'outline' | 'fill' | 'both';
 
 export interface ImportOptions {
   /** Folder name (usually the source layer name). */
@@ -78,15 +80,6 @@ interface GeoJsonFeature {
 }
 
 // ---- colors ---------------------------------------------------------------
-
-export type RampName =
-  | 'category'
-  | 'rainbow'
-  | 'viridis'
-  | 'turbo'
-  | 'warm'
-  | 'cool'
-  | 'grayscale';
 
 export const RAMPS: { id: RampName; label: string }[] = [
   { id: 'category', label: 'Categorical (distinct)' },
@@ -258,18 +251,6 @@ export function buildStyle(id: string, hex: string, p: StyleParams): KmlStyle {
     // default", which is what every existing import produced.
     ...(p.labelScale !== undefined ? { label: { scale: p.labelScale } } : {}),
   };
-}
-
-/** A per-category style + label the user can fine-tune before import. */
-export interface CategorySpec {
-  /** Raw field value this category matches. */
-  value: string;
-  /** Display name — becomes the sub-folder name. */
-  label: string;
-  color: string; // #rrggbb
-  fillMode: FillMode;
-  fillOpacity: number; // 0..1
-  lineOpacity: number; // 0..1
 }
 
 /** Seed category specs from the distinct values, using the ramp + base options. */

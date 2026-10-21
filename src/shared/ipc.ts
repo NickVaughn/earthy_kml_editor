@@ -115,6 +115,13 @@ export interface Api {
   getSettings(): Promise<AppSettings>;
   setSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   getRecentFiles(): Promise<string[]>;
+  /** Saved colour-by-field mappings, shared by the import and restyle dialogs. */
+  getStylePresets(): Promise<import('./stylePresets').StylePreset[]>;
+  /** Add a preset, or replace the one with its name; resolves to the new list. */
+  saveStylePreset(
+    preset: import('./stylePresets').StylePreset,
+  ): Promise<import('./stylePresets').StylePreset[]>;
+  deleteStylePreset(name: string): Promise<import('./stylePresets').StylePreset[]>;
   /** Register a listener for "open this file" events pushed from main (menu/file assoc). */
   onOpenRequested(cb: (path: string) => void): () => void;
   onMenuAction(cb: (action: string) => void): () => void;
