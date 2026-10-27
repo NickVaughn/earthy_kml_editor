@@ -6,7 +6,7 @@ import { terrainProviderFor } from '@renderer/globe/terrain';
 import { loadGeoid, geoidHeight } from '@renderer/model/geoid';
 import type { AppSettings } from '@shared/ipc';
 import { resolveBalloonHtml } from '@renderer/model/balloon';
-import { lineLength, polygonArea, formatLength, formatArea } from '@renderer/model/measure';
+import { rulerGeometry, committedPoints, SAVED_NAMES } from '@renderer/model/ruler';
 import { isVectorPath, isRasterPath } from '@shared/gdal';
 import { baseName } from '@shared/paths';
 import { useKeybindings } from '@renderer/input/useKeybindings';
@@ -27,6 +27,7 @@ import {
 } from './RasterChoiceDialog';
 import { RestyleDialog } from './RestyleDialog';
 import { DescriptionDialog } from './DescriptionDialog';
+import { RulerPanel } from './RulerPanel';
 
 /** Show a transient message in the status strip. */
 function flash(message: string, ms = 5000): void {
@@ -64,7 +65,6 @@ const MODE_HINT: Record<string, string> = {
   'draw-polygon':
     'Click to add vertices · Shift-drag to sketch freehand · Backspace to undo · double-click or Enter to finish · Esc to cancel',
   edit: 'Drag handles to move · click a midpoint to add · right-click/Delete to remove · Esc when done',
-  measure: 'Click to add points · double-click to finish · Esc to cancel',
 };
 
 export function App(): JSX.Element {
@@ -286,6 +286,41 @@ export function App(): JSX.Element {
     window.api.setDirty(store.dirty);
   }, [store.dirty]);
 
+  // ---- ruler: (re)open on the current tab; follow its settings ------------
+  const startRuler = useCallback(() => {
+    const s = useStore.getState();
+    globeRef.current?.startRuler(s.rulerShape, s.settings.rulerMouseNav, {
+      onChange: (r) => useStore.getState().setRulerReading(r),
+      onExit: () => useStore.getState().setMode('none'),
+    });
+  }, []);
+
+  // Switching tabs starts a fresh measurement, as in Google Earth.
+  useEffect(() => {
+    if (useStore.getState().interactionMode === 'measure') startRuler();
+  }, [store.rulerShape, startRuler]);
+
+  useEffect(() => {
+    globeRef.current?.setRulerMouseNavigation(store.settings.rulerMouseNav);
+  }, [store.settings.rulerMouseNav]);
+
+  /** Ruler ▸ Save: add the measurement as a feature and let the user name it. */
+  const saveMeasurement = useCallback(() => {
+    const s = useStore.getState();
+    const r = s.rulerReading;
+    if (!r) return;
+    // 3D measurements save `absolute` altitudes, which KML takes from sea level.
+    const geometry = rulerGeometry(
+      r.shape,
+      committedPoints(r),
+      (p) => (p[2] ?? 0) - (geoidHeight(p[0], p[1]) ?? 0),
+    );
+    if (!geometry) return;
+    const id = s.addPlacemark(geometry, SAVED_NAMES[r.shape]);
+    s.requestRename(id);
+    globeRef.current?.clearRuler();
+  }, []);
+
   // ---- interaction mode drives the globe draw/edit tools ------------------
   const prevModeRef = useRef<string>('none');
   useEffect(() => {
@@ -315,17 +350,7 @@ export function App(): JSX.Element {
         () => s().setMode('none'),
       );
     } else if (mode === 'measure') {
-      globe.startDraw(
-        'LineString',
-        (g) => {
-          const coords = g.kind === 'LineString' ? g.coordinates : [];
-          let text = `Length: ${formatLength(lineLength(coords))}`;
-          if (coords.length >= 3) text += ` · Area: ${formatArea(polygonArea(coords))}`;
-          s().setMeasure(text);
-          s().setMode('none');
-        },
-        () => s().setMode('none'),
-      );
+      startRuler();
     } else if (mode === 'edit') {
       const sel = s().selection;
       const node = sel.length === 1 ? s().docOf(sel[0])?.nodeById(sel[0]) : undefined;
@@ -335,7 +360,7 @@ export function App(): JSX.Element {
         s().setMode('none');
       }
     }
-  }, [store.interactionMode]);
+  }, [store.interactionMode, startRuler]);
 
   // ---- raster overlays (single image, no tiling) --------------------------
   const loadRaster = useCallback(async (path: string) => {
@@ -646,17 +671,17 @@ export function App(): JSX.Element {
               Open a KML/KMZ (⌘O) or drag one in — you can open several at once.
             </div>
           )}
-          {store.interactionMode !== 'none' && (
+          {MODE_HINT[store.interactionMode] && (
             <div className="mode-hint">
               {MODE_HINT[store.interactionMode]}
               <button onClick={() => useStore.getState().setMode('none')}>Done</button>
             </div>
           )}
-          {store.measureResult && (
-            <div className="measure-readout">
-              {store.measureResult}
-              <button onClick={() => useStore.getState().setMeasure(null)}>✕</button>
-            </div>
+          {store.interactionMode === 'measure' && (
+            <RulerPanel
+              onSave={saveMeasurement}
+              onClear={() => globeRef.current?.clearRuler()}
+            />
           )}
           {balloonNode && (
             <Balloon

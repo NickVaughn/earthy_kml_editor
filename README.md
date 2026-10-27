@@ -4,7 +4,7 @@ A lean, cross-platform desktop **KML/KMZ viewer and editor** — a small,
 self-hostable alternative for looking at and editing placemarks, paths, and
 polygons on a 3D globe.
 
-> ⚠️ **Work in progress.** This is early software (currently `v0.6.0`). Editing
+> ⚠️ **Work in progress.** This is early software (currently `v0.7.0`). Editing
 > is functional, but expect rough edges, missing features, and breaking changes.
 > There are no stability or data-safety guarantees yet — keep backups of any KML
 > you care about.
@@ -40,6 +40,14 @@ It works and it's tested, but it's a hobby/learning artifact first.
   small JSON files for sharing — **File ▸ Export / Import Style Presets…**, or
   **Export…** beside a picked preset for just that one.
 - Edit names and descriptions; per-feature balloons.
+- A **ruler** like Google Earth's (📏 in the toolbar, or **M**), with Line,
+  Path, Polygon, Circle, 3D path and 3D polygon tabs. It reads map length,
+  ground length along the terrain, heading, perimeter, area, radius and
+  circumference, in metric or imperial units. Distances are ellipsoidal
+  geodesics and areas are exact on WGS84; the 3D tabs measure straight-line
+  distances through points picked on terrain or 3D buildings. Points can be
+  dragged afterwards, and **Save** adds the measurement to the file as a
+  feature.
 - Import other vector formats (via GDAL) with categorized styling.
 - **Import rasters** (GeoTIFF and friends). Small ones drape as a single image
   embedded in the file; large ones can be tiled into a zoom pyramid instead of

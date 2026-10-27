@@ -31,6 +31,7 @@ describe('command registry', () => {
     expect(commandForKey('n')?.id).toBe('view.northUp');
     expect(commandForKey('U')?.id).toBe('view.nadir'); // case-insensitive
     expect(commandForKey('?')?.id).toBe('help.toggle');
+    expect(commandForKey('m')?.id).toBe('tools.ruler');
     expect(commandForKey('z')).toBeNull();
   });
 

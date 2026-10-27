@@ -11,6 +11,9 @@ const DEFAULTS: AppSettings = {
   showBathymetry: false,
   depthTestAgainstTerrain: false,
   showWaterEffect: true,
+  rulerLengthUnit: 'm',
+  rulerAreaUnit: 'm2',
+  rulerMouseNav: true,
 };
 
 interface Schema {

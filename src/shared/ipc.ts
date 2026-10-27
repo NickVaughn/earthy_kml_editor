@@ -68,6 +68,11 @@ export interface AppSettings {
    * sources have none, so there the toggle is moot and stays greyed out.
    */
   showWaterEffect: boolean;
+  /** Ruler units (ids from model/ruler.ts LENGTH_UNITS / AREA_UNITS). */
+  rulerLengthUnit: string;
+  rulerAreaUnit: string;
+  /** Let the mouse move the globe while the ruler is open (else it only places points). */
+  rulerMouseNav: boolean;
 }
 
 /** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */

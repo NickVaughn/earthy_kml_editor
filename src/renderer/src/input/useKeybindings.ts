@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useStore } from '@renderer/state/store';
 import type { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
 import { commandForKey } from './commands';
+import { isTypingTarget } from './typing';
 
 /**
  * True when a keyboard shortcut should be IGNORED for this event — because the
@@ -14,12 +15,7 @@ export function shouldSkipShortcut(
   if (opts.hasModifier) return true; // e.g. Cmd+N must not trigger plain "n"
   if (opts.modalOpen) return true; // import dialog / help — let Esc close them
   if (opts.toolActive) return true; // DrawTool/EditTool own Enter/Esc/Delete/etc.
-  const el = target as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  if (el.isContentEditable) return true;
-  return false;
+  return isTypingTarget(target);
 }
 
 /** Install the single window-level keyboard-shortcut dispatcher. */
@@ -36,7 +32,9 @@ export function useKeybindings(globeRef: React.MutableRefObject<GlobeRenderer | 
 
       const skip = shouldSkipShortcut(e.target, {
         modalOpen: s.pendingImport !== null || s.helpOpen,
-        toolActive: s.interactionMode !== 'none',
+        // The ruler only claims Enter/Esc/Backspace, so camera keys keep
+        // working while it is open — and M closes it again.
+        toolActive: s.interactionMode !== 'none' && s.interactionMode !== 'measure',
         hasModifier: e.metaKey || e.ctrlKey || e.altKey,
       });
       // '?' toggles help even when help is open (so it can close it too).

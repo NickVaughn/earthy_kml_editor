@@ -2,45 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { KmlDocument } from '@renderer/model/document';
 import { serializeKml } from '@renderer/model/serialize';
 import { parseKml } from '@renderer/model/parse';
-import { lineLength, polygonArea, haversine, formatLength, formatArea } from '@renderer/model/measure';
 import type { Geometry } from '@renderer/model/types';
 import { fixture } from './helpers';
-
-describe('measurement', () => {
-  it('measures 1° of latitude as ~111 km', () => {
-    const d = haversine([0, 0], [0, 1]);
-    expect(d).toBeGreaterThan(110_000);
-    expect(d).toBeLessThan(112_000);
-  });
-
-  it('sums polyline length', () => {
-    const len = lineLength([
-      [0, 0],
-      [0, 1],
-      [0, 2],
-    ]);
-    expect(len).toBeGreaterThan(221_000);
-    expect(len).toBeLessThan(223_000);
-  });
-
-  it('computes a ~12,300 km² area for a 1°×1° box at the equator', () => {
-    const area = polygonArea([
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 1],
-    ]);
-    expect(area).toBeGreaterThan(12.0e9);
-    expect(area).toBeLessThan(12.5e9);
-  });
-
-  it('formats length and area', () => {
-    expect(formatLength(500)).toBe('500.0 m');
-    expect(formatLength(2500)).toBe('2.50 km');
-    expect(formatArea(500)).toBe('500 m²');
-    expect(formatArea(2_000_000)).toContain('km²');
-  });
-});
 
 describe('geometry creation + editing', () => {
   const point: Geometry = { kind: 'Point', coordinates: [-100, 40] };
