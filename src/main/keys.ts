@@ -11,6 +11,7 @@
  * The parsing and precedence rules live in shared/keys.ts; this adds the file.
  */
 import { app, shell } from 'electron';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { KEYS_TEMPLATE, parseKeyFile, resolveKey } from '../shared/keys';
@@ -45,5 +46,12 @@ export function apiKey(...names: string[]): string | null {
 export async function openKeysFile(): Promise<void> {
   const path = keysFilePath();
   if (!existsSync(path)) writeFileSync(path, KEYS_TEMPLATE, 'utf8');
-  await shell.openPath(path);
+  if (process.platform === 'win32') {
+    // Windows has no default app for .env files and would ask which program
+    // to use; Notepad is always there.
+    spawn('notepad.exe', [path], { detached: true, stdio: 'ignore' }).unref();
+    return;
+  }
+  // No editor for the file type: show it in its folder rather than do nothing.
+  if (await shell.openPath(path)) shell.showItemInFolder(path);
 }

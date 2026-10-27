@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } from 'electron';
-import { join, normalize, sep } from 'node:path';
+import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
@@ -531,11 +531,33 @@ function registerIpc(): void {
   );
 }
 
-// Capture a path passed as an argv (Windows/Linux file association).
-function argvPath(argv: string[]): string | null {
+// Capture a path passed as an argv (Windows/Linux file association), made
+// absolute against the folder it was given in.
+function argvPath(argv: string[], cwd = process.cwd()): string | null {
   const candidate = argv.find((a) => /\.(kml|kmz)$/i.test(a));
-  return candidate ?? null;
+  return candidate ? resolve(cwd, candidate) : null;
 }
+
+/**
+ * One Earthy at a time on Windows and Linux, where opening a file from the
+ * file manager while Earthy runs starts a second copy: that copy hands its
+ * file to this one and quits. macOS does this itself, via 'open-file'. Dev
+ * runs are exempt, so `npm run dev` works alongside an installed Earthy.
+ */
+const isPrimaryInstance =
+  process.platform === 'darwin' || !app.isPackaged || app.requestSingleInstanceLock();
+if (!isPrimaryInstance) app.quit();
+
+app.on('second-instance', (_e, argv, workingDirectory) => {
+  const path = argvPath(argv.slice(1), workingDirectory);
+  if (!mainWindow) {
+    pendingOpenPath = path ?? pendingOpenPath;
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  if (path) mainWindow.webContents.send('open-requested', path);
+});
 
 // macOS "open with" before ready.
 app.on('open-file', (event, path) => {
@@ -567,8 +589,15 @@ function setDevDockIcon(): void {
 }
 
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return;
   setDevDockIcon();
   pendingOpenPath = argvPath(process.argv.slice(1)) ?? pendingOpenPath;
+  // gdal3.js finds its WASM by a path relative to the working directory, and
+  // on Windows no relative path crosses drives. Opening a file on another
+  // drive (a network share, a USB stick) starts Earthy with its working
+  // directory there, and every import would fail. Work from the app's own
+  // folder instead; the argv path above is already absolute.
+  if (process.platform === 'win32') process.chdir(dirname(process.execPath));
   registerTileProtocol();
   registerIpc();
   buildMenu();

@@ -7,6 +7,7 @@ import {
   presetConflicts,
   mergePresets,
 } from '../shared/presetFile';
+import { baseName } from '../shared/paths';
 import { getStylePresets, setStylePresets } from './settings';
 
 const FILTERS = [{ name: 'Earthy style presets', extensions: ['json'] }];
@@ -51,7 +52,7 @@ export async function importStylePresets(win: BrowserWindow): Promise<void> {
   const res = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS });
   if (res.canceled || res.filePaths.length === 0) return;
   const path = res.filePaths[0];
-  const fileName = path.split(/[\\/]/).pop();
+  const fileName = baseName(path);
 
   let parsed;
   try {

@@ -1,0 +1,40 @@
+name: Windows
+
+# Tests on Windows, then builds the installer. Every run attaches it as a
+# workflow artifact; pushing a v* tag also publishes it on a GitHub release.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # only used by the release step, on tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run make:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Earthy-Windows-installer
+          path: release/*.exe
+          if-no-files-found: error
+
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe

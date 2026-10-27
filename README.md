@@ -75,9 +75,26 @@ Everything works keyless (Esri imagery + AWS terrain). Two keys unlock more:
 Set them either as environment variables (a shell export or an `.envrc`, which
 is what `npm run dev` picks up) or in Earthy's own keys file — **File ▸ API
 Keys…** opens it, with the names commented in place. The file matters for an
-installed app: launched from Finder or the Dock it inherits no shell
-environment, so `.envrc` never reaches it. Environment variables win over the
-file, and both are read at launch, so restart after changing either.
+installed app: launched from Finder, the Dock or the Start menu it inherits no
+shell environment, so `.envrc` never reaches it. Environment variables win over
+the file, and both are read at launch, so restart after changing either.
+
+The keys file is `~/Library/Application Support/Earthy/keys.env` on macOS and
+`%APPDATA%\Earthy\keys.env` on Windows. Keys stay on the machine; they are never
+built into the app.
+
+## Installing on Windows
+
+The
+[Windows workflow](https://github.com/NickVaughn/earthy_kml_editor/actions/workflows/windows.yml)
+tests every push on Windows and builds an installer: open the latest run and
+download **Earthy-Windows-installer** under Artifacts. A pushed `v*` tag also
+attaches it to a
+[release](https://github.com/NickVaughn/earthy_kml_editor/releases).
+
+The installer is per-user and needs no administrator rights. It is not
+code-signed, so SmartScreen warns on first run: **More info ▸ Run anyway**. It
+associates `.kml` and `.kmz` with Earthy.
 
 ## Built with
 
@@ -114,12 +131,13 @@ npm run dev        # launch the app in dev mode
 npm test           # run the test suite
 npm run build      # build for production
 npm run make       # build a distributable (macOS dmg, see electron-builder.yml)
+npm run make:win   # build the Windows installer (on Windows; elsewhere needs Wine)
 ```
 
 To use Earthy as an installed app while working on it:
 
 ```bash
-npm run install-local   # build and replace /Applications/Earthy.app (~8 s)
+npm run install-local   # macOS: build and replace /Applications/Earthy.app (~8 s)
 ```
 
 It quits a running copy first, so re-run it whenever you want the installed

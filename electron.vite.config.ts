@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { normalizePath } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
@@ -43,7 +44,8 @@ export default defineConfig({
         targets: CESIUM_ASSET_DIRS.map((dir) => ({
           // Absolute path: static-copy resolves `src` against the renderer root
           // (src/renderer), so we must anchor to the project root ourselves.
-          src: resolve(__dirname, CESIUM_SOURCE, dir),
+          // `src` is a glob, where '\' escapes: Windows paths need '/'.
+          src: normalizePath(resolve(__dirname, CESIUM_SOURCE, dir)),
           dest: 'cesium',
         })),
       }),
