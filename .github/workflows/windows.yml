@@ -1,21 +1,33 @@
 name: Windows
 
-# Tests on Windows, then builds the installer. Every run attaches it as a
-# workflow artifact; pushing a v* tag also publishes it on a GitHub release.
+# Tests on Windows, then builds the installer and keeps it as a run artifact.
+#
+# Releases need no tag push: when a push to master carries a package.json
+# version that has no tag yet, this workflow tags the built commit vX.Y.Z and
+# publishes the installer as a GitHub release. The notes come from the body of
+# the "Version X.Y.Z" commit. A v* tag pushed by hand publishes the same way,
+# with the tag's own message as the notes.
 on:
   push:
-    branches: ['**']
+    branches: [master]
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write # only used by the release step, on tags
+  contents: write # tag + release
+
+# Two quick pushes to master run one after the other, so the second sees the
+# first one's tag instead of racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history and tags, to find the Version commit
 
       - uses: actions/setup-node@v5
         with:
@@ -34,7 +46,44 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
 
-      - if: startsWith(github.ref, 'refs/tags/v')
+      # Decide whether this run releases, and write the notes. A tag made here
+      # with the workflow's token starts no new run, so this run publishes.
+      - name: Decide release
+        id: release
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+            git tag -l --format='%(contents:body)' "$tag" > notes.md
+          else
+            version=$(node -p "require('./package.json').version")
+            tag="v$version"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "$tag is already released; nothing to publish."
+              exit 0
+            fi
+            # Notes: the Version commit's body, less its attribution trailers.
+            from=$(git log -1 --format=%H --grep="^Version $version\$" HEAD)
+            if [ -n "$from" ]; then
+              git log -1 --format=%b "$from" \
+                | sed -E '/^(Co-Authored-By|Claude-Session|Signed-off-by): /Id' > notes.md
+            else
+              echo "No 'Version $version' commit found; releasing without notes."
+              : > notes.md
+            fi
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            { echo "Earthy $version"; echo; cat notes.md; } | git tag -a "$tag" -F - "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=Earthy ${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - if: steps.release.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.name }}
+          body_path: notes.md
           files: release/*.exe

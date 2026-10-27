@@ -85,12 +85,12 @@ built into the app.
 
 ## Installing on Windows
 
-The
+Each new version is published as a
+[release](https://github.com/NickVaughn/earthy_kml_editor/releases) with the
+Windows installer attached. Between releases, the
 [Windows workflow](https://github.com/NickVaughn/earthy_kml_editor/actions/workflows/windows.yml)
-tests every push on Windows and builds an installer: open the latest run and
-download **Earthy-Windows-installer** under Artifacts. A pushed `v*` tag also
-attaches it to a
-[release](https://github.com/NickVaughn/earthy_kml_editor/releases).
+tests every push to `master` on Windows and builds an installer: open the
+latest run and download **Earthy-Windows-installer** under Artifacts.
 
 The installer is per-user and needs no administrator rights. It is not
 code-signed, so SmartScreen warns on first run: **More info ▸ Run anyway**. It
