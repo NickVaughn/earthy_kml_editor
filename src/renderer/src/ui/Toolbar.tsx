@@ -45,7 +45,7 @@ export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
         {tool('draw-line', '〜', 'Draw line')}
         {tool('draw-polygon', '⬡', 'Draw polygon')}
         {tool('edit', '✎', canEdit ? 'Edit vertices' : 'Select one feature to edit', !canEdit)}
-        {tool('measure', '📏', 'Measure distance / area')}
+        {tool('measure', '📏', 'Ruler — measure distance and area (M)')}
       </div>
       <div className="toolbar-right">
         <label className="basemap-label">Basemap</label>

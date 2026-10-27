@@ -14,6 +14,7 @@ import {
 } from 'cesium';
 import type { Geometry, Position } from '@renderer/model/types';
 import { vertexMarker, HANDLE_SIZE } from './handles';
+import { pickSurface } from './pick';
 
 export type DrawKind = 'Point' | 'LineString' | 'Polygon';
 
@@ -55,16 +56,7 @@ export class DrawTool {
   }
 
   private pickGlobe(pos: Cartesian2): Cartesian3 | null {
-    // With terrain on, snap vertices to the terrain surface so their captured
-    // elevation is real; otherwise the ellipsoid intersection is enough.
-    if (this.terrainOn) {
-      const ray = this.viewer.camera.getPickRay(pos);
-      const hit = ray ? this.viewer.scene.globe.pick(ray, this.viewer.scene) : undefined;
-      if (hit) return hit;
-    }
-    return (
-      this.viewer.camera.pickEllipsoid(pos, this.viewer.scene.globe.ellipsoid) ?? null
-    );
+    return pickSurface(this.viewer, pos, this.terrainOn);
   }
 
   /** Lon/lat only — new features are created clamp-to-ground; we never write Z. */

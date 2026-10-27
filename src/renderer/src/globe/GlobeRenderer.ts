@@ -46,6 +46,8 @@ import {
 } from './scene';
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
+import { RulerTool, type RulerCallbacks } from './RulerTool';
+import type { RulerShape } from '@renderer/model/ruler';
 import {
   nadirOrientation,
   northUpOrientation,
@@ -113,6 +115,12 @@ export class GlobeRenderer {
       baseLayer: false, // we add imagery ourselves
     });
     this.viewer.scene.globe.showGroundAtmosphere = true;
+    // The Viewer flies to and tracks an entity that is double-clicked. Earthy's
+    // features are primitives, so its only entities are the tools' own
+    // previews — and a double-click is how a line or path is finished.
+    this.viewer.cesiumWidget.screenSpaceEventHandler.removeInputAction(
+      ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
+    );
 
     this.selBillboards = new BillboardCollection({ scene: this.viewer.scene });
     this.selectionLayer.add(this.selLines);
@@ -594,6 +602,24 @@ export class GlobeRenderer {
     this.clearSelection();
     this.scene?.setNodeShow(nodeId, false); // hide static copy while editing
     this.activeTool = new EditTool(this.viewer, node.geometry, onCommit);
+  }
+
+  /** Open the ruler on one of its tabs; it stays until another tool or cancelTool. */
+  startRuler(shape: RulerShape, mouseNavigation: boolean, callbacks: RulerCallbacks): void {
+    this.cancelTool();
+    this.activeTool = new RulerTool(this.viewer, shape, mouseNavigation, () => this.terrainOn, callbacks);
+  }
+
+  private get ruler(): RulerTool | null {
+    return this.activeTool instanceof RulerTool ? this.activeTool : null;
+  }
+
+  setRulerMouseNavigation(on: boolean): void {
+    this.ruler?.setMouseNavigation(on);
+  }
+
+  clearRuler(): void {
+    this.ruler?.clear();
   }
 
   cancelTool(): void {

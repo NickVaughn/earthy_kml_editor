@@ -248,7 +248,7 @@ body,
   z-index: 11;
 }
 
-/* Mode hint + measure readout over the globe */
+/* Mode hint over the globe */
 .mode-hint {
   position: absolute;
   top: 12px;
@@ -266,8 +266,7 @@ body,
   z-index: 12;
   pointer-events: auto;
 }
-.mode-hint button,
-.measure-readout button {
+.mode-hint button {
   background: var(--accent);
   color: #001;
   border: none;
@@ -276,21 +275,152 @@ body,
   cursor: pointer;
   font-size: 11px;
 }
-.measure-readout {
+
+/* Ruler (after Google Earth's Ruler window) */
+.ruler {
   position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.82);
-  color: #fff;
+  top: 12px;
+  left: 12px;
+  width: 460px;
+  max-width: calc(100% - 24px);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  z-index: 13;
+  font-size: 12px;
+}
+.ruler-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  cursor: grab;
+}
+.ruler-head:active {
+  cursor: grabbing;
+}
+.ruler-title {
+  font-weight: 600;
+}
+.ruler-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
   font-size: 13px;
-  z-index: 12;
+}
+.ruler-close:hover {
+  color: var(--text);
+}
+.ruler-tabs {
+  display: flex;
+  margin: 8px 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ruler-tabs button {
+  flex: 1 1 auto;
+  background: var(--panel-2);
+  color: var(--text);
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ruler-tabs button:first-child {
+  border-left: none;
+}
+.ruler-tabs button:hover:not(.active) {
+  background: var(--bg);
+}
+.ruler-tabs button.active {
+  background: var(--accent);
+  color: #001;
+  font-weight: 600;
+}
+.ruler-body {
+  padding: 8px 12px 6px;
+}
+.ruler-blurb {
+  margin-bottom: 8px;
+}
+/* Fixed columns and room for three rows, so the panel keeps its size from tab to tab. */
+.ruler-rows {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 150px;
+  grid-auto-rows: 24px;
+  align-content: start;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 72px;
+  margin: 0 4px;
+}
+.ruler-row {
+  display: contents;
+}
+.ruler-label {
+  color: var(--muted);
+  text-align: right;
+}
+.ruler-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ruler-unit select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.ruler-unit-text {
+  padding-left: 5px;
+}
+.ruler-hint {
+  margin-top: 8px;
+  min-height: 2.9em; /* two lines */
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ruler-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.ruler-nav {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+}
+.ruler-foot button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ruler-foot button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.ruler-foot button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .help-btn {

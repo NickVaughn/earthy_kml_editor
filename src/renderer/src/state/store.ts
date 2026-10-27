@@ -5,6 +5,7 @@ import type { Geometry, KmlStyle, LatLonBox } from '@renderer/model/types';
 import { geojsonToFolder, type ImportOptions, type CategorySpec } from '@renderer/model/geojson';
 import type { OpenedFile, AppSettings } from '@shared/ipc';
 import type { VectorInfo } from '@shared/gdal';
+import type { RulerReading, RulerShape } from '@renderer/model/ruler';
 
 // Default style for newly drawn features: white outline (opaque), white fill
 // (~50%). aabbggrr — ffffffff = opaque white, 80ffffff = ~50% white.
@@ -47,7 +48,9 @@ interface AppState {
   selection: string[];
   balloonNodeId: string | null;
   interactionMode: InteractionMode;
-  measureResult: string | null;
+  /** The ruler's tab (kept between openings), and what it is measuring. */
+  rulerShape: RulerShape;
+  rulerReading: RulerReading | null;
 
   /** Vector file awaiting import options (drives the import dialog). */
   pendingImport: { path: string; info: VectorInfo } | null;
@@ -143,7 +146,8 @@ interface AppState {
 
   // geometry
   setMode(mode: InteractionMode): void;
-  setMeasure(result: string | null): void;
+  setRulerShape(shape: RulerShape): void;
+  setRulerReading(reading: RulerReading | null): void;
   addPlacemark(geometry: Geometry, name?: string): string;
   updateGeometry(nodeId: string, geometry: Geometry): void;
   setDescription(nodeId: string, description: string): void;
@@ -167,6 +171,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   showBathymetry: false,
   depthTestAgainstTerrain: false,
   showWaterEffect: true,
+  rulerLengthUnit: 'm',
+  rulerAreaUnit: 'm2',
+  rulerMouseNav: true,
 };
 
 export const useStore = create<AppState>((set, get) => {
@@ -198,7 +205,8 @@ export const useStore = create<AppState>((set, get) => {
     selection: [],
     balloonNodeId: null,
     interactionMode: 'none',
-    measureResult: null,
+    rulerShape: 'line',
+    rulerReading: null,
     pendingImport: null,
     importStatus: null,
     gdalJob: null,
@@ -475,10 +483,13 @@ export const useStore = create<AppState>((set, get) => {
 
     setMode(mode) {
       set({ interactionMode: mode });
-      if (mode !== 'none') set({ measureResult: null });
+      if (mode !== 'measure') set({ rulerReading: null });
     },
-    setMeasure(result) {
-      set({ measureResult: result });
+    setRulerShape(shape) {
+      set({ rulerShape: shape });
+    },
+    setRulerReading(reading) {
+      set({ rulerReading: reading });
     },
     addPlacemark(geometry, name) {
       // Target the selection's doc, else the active doc, else a fresh Untitled.

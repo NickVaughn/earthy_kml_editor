@@ -13,7 +13,7 @@ export interface Command {
   /** Human-friendly key label for the help overlay. */
   keyLabel: string;
   label: string;
-  group: 'View' | 'Edit' | 'Help';
+  group: 'View' | 'Edit' | 'Tools' | 'Help';
   run(ctx: CommandContext): void;
 }
 
@@ -73,6 +73,17 @@ export const COMMANDS: Command[] = [
       if (s.selection.length !== 1) return;
       const node = s.docOf(s.selection[0])?.nodeById(s.selection[0]);
       if (node?.type === 'Placemark' && node.geometry) s.setMode('edit');
+    },
+  },
+  {
+    id: 'tools.ruler',
+    keys: 'm',
+    keyLabel: 'M',
+    label: 'Ruler: measure distance and area',
+    group: 'Tools',
+    run: ({ store }) => {
+      const s = store.getState();
+      s.setMode(s.interactionMode === 'measure' ? 'none' : 'measure');
     },
   },
   {
