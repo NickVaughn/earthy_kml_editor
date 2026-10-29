@@ -48,6 +48,12 @@ const api: Api = {
     ipcRenderer.on('terrain-changed', listener);
     return () => ipcRenderer.removeListener('terrain-changed', listener);
   },
+  onSettingsChanged: (cb) => {
+    const listener = (_e: unknown, s: import('@shared/ipc').AppSettings) => cb(s);
+    ipcRenderer.on('settings-changed', listener);
+    return () => ipcRenderer.removeListener('settings-changed', listener);
+  },
+  geocode: (query, source) => ipcRenderer.invoke('geocode', query, source),
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
   inspectVector: (path, csv) => ipcRenderer.invoke('gdal-inspect-vector', path, csv),
   convertVector: (path, layerName, csv) =>

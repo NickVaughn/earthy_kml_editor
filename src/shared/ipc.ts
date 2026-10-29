@@ -73,6 +73,8 @@ export interface AppSettings {
   rulerAreaUnit: string;
   /** Let the mouse move the globe while the ruler is open (else it only places points). */
   rulerMouseNav: boolean;
+  /** Place-name search source (see shared/geocode.ts). */
+  geocoder: import('./geocode').GeocodeSource;
 }
 
 /** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */
@@ -138,6 +140,13 @@ export interface Api {
   onMenuAction(cb: (action: string) => void): () => void;
   /** Terrain enabled / active-source changed from the native Terrain menu. */
   onTerrainChanged(cb: (settings: AppSettings) => void): () => void;
+  /** Any other setting changed from a native menu (e.g. the Search menu). */
+  onSettingsChanged(cb: (settings: AppSettings) => void): () => void;
+  /** Place-name search; main runs the request against the chosen source. */
+  geocode(
+    query: string,
+    source: import('./geocode').GeocodeSource,
+  ): Promise<import('./geocode').GeocodeResponse>;
   /** Native file drag-drop onto the window; yields absolute paths. */
   onFileDrop(cb: (paths: string[]) => void): () => void;
   /** Tell main whether the document has unsaved changes (for the quit guard). */

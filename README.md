@@ -48,6 +48,11 @@ It works and it's tested, but it's a hobby/learning artifact first.
   distances through points picked on terrain or 3D buildings. Points can be
   dragged afterwards, and **Save** adds the measurement to the file as a
   feature.
+- **Place-name search** (the box in the toolbar, or **Ctrl/Cmd+F**): type a
+  town, park, peak or address, press Enter, and the globe flies there, with
+  the other matches listed to pick from. OpenStreetMap's Nominatim is the
+  keyless default; with an ion token the Cesium ion geocoder is offered too
+  (Search menu), and OpenStreetMap misses fall through to it.
 - Import other vector formats (via GDAL) with categorized styling.
 - **Import rasters** (GeoTIFF and friends). Small ones drape as a single image
   embedded in the file; large ones can be tiled into a zoom pyramid instead of
@@ -76,7 +81,8 @@ Everything works keyless (Esri imagery + AWS terrain). Two keys unlock more:
 
 - `EARTHY_ION_TOKEN` — a [Cesium ion](https://ion.cesium.com) access token
   (free Community tier). Unlocks Cesium World Terrain, World Bathymetry (add it
-  to your ion assets from the Asset Depot first), and the ion basemaps.
+  to your ion assets from the Asset Depot first), the ion basemaps, and the
+  Cesium ion place-name search.
 - `EARTHY_GOOGLE_MAPS_API_KEY` — a Google Maps Platform key with the Map Tiles
   API enabled. Unlocks the Google Hybrid / Roadmap / Terrain basemaps.
 

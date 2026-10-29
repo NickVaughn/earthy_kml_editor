@@ -12,6 +12,7 @@ import { baseName } from '@shared/paths';
 import { useKeybindings } from '@renderer/input/useKeybindings';
 import { withGdalJob, GdalCancelled, gdalJobActive } from '@renderer/state/gdalJob';
 import { tiledOverlayInfo } from '@renderer/model/overlays';
+import { FIND_PLACE_EVENT } from './PlaceSearch';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
@@ -251,6 +252,11 @@ export function App(): JSX.Element {
       void applyTerrain(s);
     });
   }, [applyTerrain]);
+
+  // ---- other settings changed from a native menu (Search source) ----------
+  useEffect(() => {
+    return window.api.onSettingsChanged((s) => useStore.getState().setSettings(s));
+  }, []);
 
   // ---- coastline download progress from the Terrain menu -------------------
   useEffect(() => {
@@ -598,6 +604,7 @@ export function App(): JSX.Element {
       else if (action === 'saveAs') doSave(true);
       else if (action === 'undo') useStore.getState().undo();
       else if (action === 'redo') useStore.getState().redo();
+      else if (action === 'findPlace') window.dispatchEvent(new Event(FIND_PLACE_EVENT));
     });
     const offOpen = window.api.onOpenRequested((path) => openPath(path));
     const offDrop = window.api.onFileDrop(async (paths) => {
@@ -654,7 +661,11 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
-      <Toolbar onOpen={doOpen} onChangeBasemap={onChangeBasemap} />
+      <Toolbar
+        onOpen={doOpen}
+        onChangeBasemap={onChangeBasemap}
+        onFlyToBounds={(b) => globeRef.current?.flyToBounds(b)}
+      />
       <div className="body">
         <div className="sidebar">
           <TreePanel

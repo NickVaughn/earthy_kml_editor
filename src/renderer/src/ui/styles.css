@@ -1028,3 +1028,63 @@ body,
 .cesium-widget-credits {
   font-size: 10px !important;
 }
+
+/* Place-name search (toolbar) */
+.place-search {
+  position: relative;
+}
+.place-search input {
+  width: 220px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.place-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.place-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 100%;
+  max-width: 420px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.place-status {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.place-result {
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-result:first-child,
+.place-status + .place-result {
+  border-top: none;
+}
+.place-result:hover {
+  background: var(--panel-2);
+}

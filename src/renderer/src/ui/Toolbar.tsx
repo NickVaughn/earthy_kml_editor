@@ -1,12 +1,14 @@
 import { useStore, type InteractionMode } from '@renderer/state/store';
 import { BASEMAPS } from '@renderer/globe/imagery';
+import { PlaceSearch } from './PlaceSearch';
 
 interface Props {
   onOpen: () => void;
   onChangeBasemap: (id: string) => void;
+  onFlyToBounds: (bounds: [number, number, number, number]) => void;
 }
 
-export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
+export function Toolbar({ onOpen, onChangeBasemap, onFlyToBounds }: Props): JSX.Element {
   const settings = useStore((s) => s.settings);
   const hasGoogleKey = useStore((s) => s.hasGoogleKey);
   const hasIonKey = useStore((s) => s.hasIonKey);
@@ -48,6 +50,7 @@ export function Toolbar({ onOpen, onChangeBasemap }: Props): JSX.Element {
         {tool('measure', '📏', 'Ruler — measure distance and area (M)')}
       </div>
       <div className="toolbar-right">
+        <PlaceSearch onFlyToBounds={onFlyToBounds} />
         <label className="basemap-label">Basemap</label>
         <select
           value={settings.basemap}

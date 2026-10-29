@@ -14,6 +14,7 @@ const DEFAULTS: AppSettings = {
   rulerLengthUnit: 'm',
   rulerAreaUnit: 'm2',
   rulerMouseNav: true,
+  geocoder: 'osm',
 };
 
 interface Schema {
