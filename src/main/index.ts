@@ -21,7 +21,8 @@ import {
 } from './settings';
 import { getGeoidGrid } from './geoid';
 import { exportStylePresets, importStylePresets } from './presetFiles';
-import { apiKey, openKeysFile } from './keys';
+import { openKeysFile } from './keys';
+import { geocode, getIonToken } from './geocode';
 import {
   inspectVector,
   convertVector,
@@ -41,6 +42,7 @@ import type { SaveRequest, GoogleMapType, AppSettings } from '@shared/ipc';
 import type { CsvOptions } from '@shared/gdal';
 import type { StylePreset } from '@shared/stylePresets';
 import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
+import { GEOCODE_SOURCES, type GeocodeSource } from '../shared/geocode';
 
 let mainWindow: BrowserWindow | null = null;
 /** A path passed on the command line / via file association before the window is ready. */
@@ -185,6 +187,10 @@ function sendTerrain(settings: AppSettings): void {
   mainWindow?.webContents.send('terrain-changed', settings);
 }
 
+function sendSettings(settings: AppSettings): void {
+  mainWindow?.webContents.send('settings-changed', settings);
+}
+
 // ---- Coastline water mask (GSHHG) ----------------------------------------
 
 /** GSHHG full-res L1 (ocean coastline), NOAA/Wessel & Smith, stable since 2017. */
@@ -236,12 +242,6 @@ async function downloadCoastline(): Promise<void> {
   } finally {
     coastlineDownloadRunning = false;
   }
-}
-
-/** Cesium ion access token, or null. EARTHY_ION_TOKEN preferred; the
- *  ecosystem-conventional CESIUM_ION_TOKEN is honoured too. */
-function getIonToken(): string | null {
-  return apiKey('EARTHY_ION_TOKEN', 'CESIUM_ION_TOKEN');
 }
 
 function buildMenu(): void {
@@ -379,6 +379,29 @@ function buildMenu(): void {
       label: 'Terrain',
       submenu: terrainItems,
     },
+    {
+      label: 'Search',
+      submenu: [
+        {
+          label: 'Find Place…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => sendMenu('findPlace'),
+        },
+        { type: 'separator' },
+        ...GEOCODE_SOURCES.map(
+          (s): MenuItemConstructorOptions => ({
+            label: s.needsIonKey && !getIonToken() ? `${s.label} (no key)` : s.label,
+            type: 'radio',
+            checked: settings.geocoder === s.id,
+            enabled: !s.needsIonKey || getIonToken() !== null,
+            click: () => {
+              sendSettings(setSettings({ geocoder: s.id }));
+              buildMenu();
+            },
+          }),
+        ),
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -469,6 +492,9 @@ function registerIpc(): void {
   );
   ipcMain.handle('has-google-key', () => hasGoogleKey());
   ipcMain.handle('get-ion-token', () => getIonToken());
+  ipcMain.handle('geocode', (_e, query: string, source: GeocodeSource) =>
+    geocode(query, source),
+  );
   ipcMain.handle('get-water-mask', async (_e, z: number, x: number, y: number) => {
     const prepared = preparedCoastline();
     if (!prepared) return null;

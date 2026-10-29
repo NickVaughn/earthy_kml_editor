@@ -174,6 +174,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   rulerLengthUnit: 'm',
   rulerAreaUnit: 'm2',
   rulerMouseNav: true,
+  geocoder: 'osm',
 };
 
 export const useStore = create<AppState>((set, get) => {
