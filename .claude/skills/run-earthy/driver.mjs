@@ -27,6 +27,7 @@ let app = null;
 let page = null;
 let profile = null;
 const errors = [];
+const logs = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function need() {
@@ -58,6 +59,7 @@ const COMMANDS = {
     page.on('console', (m) => {
       if (m.text().includes('boot: terrain applied')) booted = true;
       if (m.type() === 'error') errors.push(`console: ${m.text().split('\n')[0]}`);
+      if (m.text().startsWith('[earthy]')) logs.push(m.text());
     });
     await page.waitForSelector('.toolbar', { timeout: 30_000 });
     // The last boot step logs this; give software rendering a moment after it.
@@ -107,14 +109,16 @@ const COMMANDS = {
     await sleep(400);
   },
 
-  /** gdrag fx1 fy1 fx2 fy2 — press, drag and release on the globe. */
+  /** gdrag fx1 fy1 fx2 fy2 [middle|right] — press, drag and release on the
+   *  globe. A middle-button drag tilts and rotates the Cesium camera. */
   async gdrag(arg) {
     need();
-    const [x1, y1, x2, y2] = arg.split(/\s+/);
+    const [x1, y1, x2, y2, button] = arg.split(/\s+/);
+    const opts = button === 'middle' || button === 'right' ? { button } : {};
     await page.mouse.move(...(await globeAt(x1, y1)));
-    await page.mouse.down();
+    await page.mouse.down(opts);
     await page.mouse.move(...(await globeAt(x2, y2)), { steps: 10 });
-    await page.mouse.up();
+    await page.mouse.up(opts);
     await sleep(500);
   },
 
@@ -221,6 +225,11 @@ const COMMANDS = {
   },
 
   /** errors — page and console errors so far, without the known startup noise. */
+  /** logs — the app's own `[earthy]` console lines so far (scene build stats, timings). */
+  async logs() {
+    console.log(logs.length ? logs.join('\n') : 'no [earthy] logs');
+  },
+
   async errors() {
     const real = errors.filter((e) => !NOISE.test(e.replace(/^(pageerror|console): /, '')));
     console.log(real.length ? real.join('\n') : 'no errors');

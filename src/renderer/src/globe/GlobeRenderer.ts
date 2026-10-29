@@ -408,7 +408,7 @@ export class GlobeRenderer {
       `[earthy] scene built: ${features} features (${this.docs.length} doc${
         this.docs.length === 1 ? '' : 's'
       }), ${s.vertices} vertices in ${ms.toFixed(0)}ms — ${skipped}; ` +
-        `draped ${s.groundFills} fills + ${s.groundLines} lines, ` +
+        `draped ${s.groundFills} fills (${s.groundFillBatches} batches) + ${s.groundLines} lines, ` +
         `flat ${s.fills} fills + ${s.hairlines} hairlines (${s.hairlinePositions} pts) + ` +
         `${s.wideLines} wide lines (${s.wideLinePositions} pts)`,
     );
