@@ -32,6 +32,7 @@ import type { KmlNode, Geometry, Position } from '@renderer/model/types';
 import { geoidHeight } from '@renderer/model/geoid';
 import { iconUrl } from '@renderer/model/overlays';
 import { kmlToCesium } from './cesiumColor';
+import { DrapeBatcher } from './drapeBatches';
 
 // Defaults for features without an explicit style (configurable later).
 const DEFAULT_LINE = Color.WHITE;
@@ -204,6 +205,9 @@ export interface SceneStats {
   /** Draped counterparts: classification fills and lines. */
   groundFills: number;
   groundLines: number;
+  /** GroundPrimitives the fills were split across: overlapping fills cannot
+   *  share one (see drapeBatches.ts), so this grows with overlap depth. */
+  groundFillBatches: number;
 }
 
 export interface SceneHandle {
@@ -317,7 +321,11 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     instances: GeometryInstance[];
     vertices: number;
   }
-  const groundPolygonChunks: DrapeChunk[] = [];
+  // Fills are batched so that no two in one primitive overlap — see
+  // drapeBatches.ts for why one GroundPrimitive cannot blend its own
+  // instances. Lines keep the plain vertex chunking: they do overlap at
+  // crossings, but a crossing is a pixel, not a region.
+  const groundPolygonBatches = new DrapeBatcher<GeometryInstance>(DRAPE_FILL_CHUNK_VERTICES);
   const groundLineChunks: DrapeChunk[] = [];
   const pushChunked = (
     chunks: DrapeChunk[],
@@ -343,6 +351,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     hairlinePositions: 0,
     wideLinePositions: 0,
     groundFills: 0,
+    groundFillBatches: 0,
     groundLines: 0,
   };
   const bounds = new Map<string, BoundingSphere>();
@@ -561,19 +570,21 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
           );
           if (drape && !absolute) {
             stats.groundFills++;
-            pushChunked(
-              groundPolygonChunks,
-              DRAPE_FILL_CHUNK_VERTICES,
+            // No height: GroundPrimitive uses the footprint and classifies
+            // against the surface.
+            const geometry = new PolygonGeometry({ polygonHierarchy: hierarchy });
+            groundPolygonBatches.add(
               new GeometryInstance({
-                // No height: GroundPrimitive uses the footprint and classifies
-                // against the surface.
-                geometry: new PolygonGeometry({ polygonHierarchy: hierarchy }),
+                geometry,
                 attributes: {
                   color: fillColor,
                   show: new ShowGeometryInstanceAttribute(startVisible),
                 },
                 id: node.id,
               }),
+              node.id,
+              // The same bounding rectangle GroundPrimitive itself works from.
+              PolygonGeometry.computeRectangleFromPositions(outer),
               g.outerBoundary.length +
                 g.innerBoundaries.reduce((n, ring) => n + ring.length, 0),
             );
@@ -671,14 +682,17 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
-  // The draped counterparts, one classification primitive PER CHUNK so no
-  // geometry worker ever packs more than DRAPE_CHUNK_VERTICES into a single
-  // transfer buffer (the allocation that killed the 4.16M-vertex build).
-  // Show toggles work the same way — per-instance attributes on the chunk
-  // that owns the instance.
-  for (const chunk of groundPolygonChunks) {
+  // The draped counterparts, one classification primitive PER BATCH: a batch
+  // holds no two overlapping fills (drapeBatches.ts), and no more than
+  // DRAPE_CHUNK_VERTICES, so no geometry worker ever packs more than that into
+  // a single transfer buffer (the allocation that killed the 4.16M-vertex
+  // build). Show toggles work the same way — per-instance attributes on the
+  // primitive that owns the instance.
+  stats.groundFillBatches = groundPolygonBatches.batches.length;
+  for (const chunk of groundPolygonBatches.batches) {
+    const instances = chunk.items;
     const prim = new GroundPrimitive({
-      geometryInstances: chunk.instances,
+      geometryInstances: instances,
       // GroundPrimitive defaults to no appearance at all; KML fills are usually
       // translucent, so say so explicitly as the pre-Phase-5 code did.
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
@@ -686,12 +700,12 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       // the batch table, which survives release. Keeping millions of input
       // vertices resident was pure overhead.
       releaseGeometryInstances: true,
-      asynchronous: chunk.instances.length > 200,
+      asynchronous: instances.length > 200,
     });
     groundPrimitives.add(prim);
-    // Register toggles from the ids alone: holding chunk.instances in these
+    // Register toggles from the ids alone: holding the instances in these
     // closures would keep the released input geometry alive after all.
-    for (const id of chunk.instances.map((i) => i.id as string)) {
+    for (const id of instances.map((i) => i.id as string)) {
       addToggle(id, {
         set: (sh) => {
           if (!prim.ready) return;
@@ -700,7 +714,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
         },
       });
     }
-    chunk.instances = [];
+    chunk.items = [];
   }
 
   for (const chunk of groundLineChunks) {

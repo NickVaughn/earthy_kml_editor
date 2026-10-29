@@ -71,7 +71,7 @@ tmux send-keys -t earthy 'quit' Enter; sleep 3; tmux kill-session -t earthy
 | `ss [name]` | screenshot → `/tmp/earthy-shots/<name>.png` |
 | `gclick fx fy [right]` | click the globe at fractions of its area (`0.5 0.5` = centre) |
 | `gdbl fx fy` / `gmove fx fy` | double-click / hover the globe |
-| `gdrag fx1 fy1 fx2 fy2` | press, drag, release on the globe |
+| `gdrag fx1 fy1 fx2 fy2 [middle\|right]` | press, drag, release on the globe (`middle` tilts/rotates the camera) |
 | `click <css>` / `click-text <text>` | DOM click on an element / on the button or label with that text |
 | `select <css> <value>` | choose a `<select>` option |
 | `press <key>` / `type <text>` | keyboard to the focused element (`m` opens the ruler, `Enter`, `Escape`, …) |
@@ -79,6 +79,7 @@ tmux send-keys -t earthy 'quit' Enter; sleep 3; tmux kill-session -t earthy
 | `coord` | status-bar cursor readout (lat, lon) |
 | `text [css]` / `eval <js>` / `wait <css>` | read the DOM / evaluate in the page / wait up to 10 s |
 | `errors` | page and console errors so far, minus the known startup noise |
+| `logs` | the app's own `[earthy]` console lines so far (scene build stats, frame timings) |
 | `sleep <ms>` / `help` / `quit` | — / list commands / kill the app and delete the profile |
 
 `EARTHY_PROFILE=<dir>` keeps one settings profile across launches, and
