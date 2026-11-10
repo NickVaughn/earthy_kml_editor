@@ -346,6 +346,10 @@ export class KmlDocument {
   /**
    * Move nodes into `targetId` at `index`. Nodes that would move into their own
    * subtree are skipped. Returns the ids actually moved.
+   *
+   * `index` is a slot in the target's children as they are BEFORE the move
+   * (react-arborist's convention: dragged rows still count), so dragging an
+   * item down within its own folder lands where the drop line was drawn.
    */
   move(ids: string[], targetId: string, index?: number): string[] {
     const target = this.nodeById(targetId);
@@ -363,13 +367,16 @@ export class KmlDocument {
     }
 
     this.structuralEdit('Move', [...affected], () => {
+      // Resolve the slot before anything is removed: each dragged node sitting
+      // above it in the same folder shifts it up by one.
+      const slot = Math.max(0, Math.min(index ?? target.children.length, target.children.length));
+      const at = slot - target.children.slice(0, slot).filter((c) => nodes.includes(c)).length;
       for (const n of nodes) {
         const p = this.parentOf(n.id);
         if (!p) continue;
         const i = p.children.indexOf(n);
         if (i >= 0) p.children.splice(i, 1);
       }
-      const at = Math.max(0, Math.min(index ?? target.children.length, target.children.length));
       target.children.splice(at, 0, ...nodes);
     });
     return nodes.map((n) => n.id);

@@ -7,7 +7,7 @@ import {
   createContext,
   useContext,
 } from 'react';
-import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist';
+import { Tree, type NodeApi, type NodeRendererProps, type TreeApi } from 'react-arborist';
 import { useStore } from '@renderer/state/store';
 import type { KmlDocument } from '@renderer/model/document';
 import type { Geometry, KmlNode } from '@renderer/model/types';
@@ -256,9 +256,23 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
 
   const onMove = useCallback(
     (args: { dragIds: string[]; parentId: string | null; index: number }) => {
-      // Null parent = top level; land in the dragged nodes' own document root.
-      const target = args.parentId ?? st.getState().docOf(args.dragIds[0])?.root.id;
-      if (target) st.getState().move(args.dragIds, target, args.index);
+      const s = st.getState();
+      // Null parent = the top level, which holds only files (see disableDrop).
+      if (args.parentId === null) s.reorderDocs(args.dragIds, args.index);
+      else s.move(args.dragIds, args.parentId, args.index);
+    },
+    [st],
+  );
+
+  // Files only reorder among files, and everything else stays inside a file: a
+  // file dropped into a folder, or a feature dropped between files, would have
+  // no meaning, so no drop line is offered for it.
+  const disableDrop = useCallback(
+    (args: { parentNode: NodeApi<KmlNode>; dragNodes: NodeApi<KmlNode>[] }) => {
+      const isRoot = st.getState().isRoot;
+      const files = args.dragNodes.filter((n) => isRoot(n.id)).length;
+      if (files > 0 && files < args.dragNodes.length) return true;
+      return args.parentNode.isRoot !== (files > 0);
     },
     [st],
   );
@@ -466,6 +480,7 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           renderCursor={MoveCursor}
           onSelect={(nodes) => setSelection(nodes.map((n) => n.data.id))}
           onMove={onMove}
+          disableDrop={disableDrop}
           onRename={onRename}
           onActivate={(node) => {
             onFlyTo(node.data.id);

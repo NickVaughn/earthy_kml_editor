@@ -105,6 +105,12 @@ interface AppState {
   setChildrenVisibility(folderId: string, visible: boolean, recurse: boolean): void;
   rename(id: string, name: string): void;
   move(ids: string[], targetId: string, index?: number): void;
+  /**
+   * Reorder open files: put the documents rooted at `rootIds` at slot `index`
+   * of the file list (counted before the move, as react-arborist reports it).
+   * File order is draw order — later files paint over earlier ones.
+   */
+  reorderDocs(rootIds: string[], index: number): void;
   remove(ids: string[]): void;
   createFolder(parentId: string): void;
   copy(ids: string[]): void;
@@ -357,6 +363,22 @@ export const useStore = create<AppState>((set, get) => {
         set({ selection: selected, activeDocId: targetDoc.id });
         bumpScene();
       }
+    },
+    reorderDocs(rootIds, index) {
+      const docs = get().docs;
+      const moving = docs.filter((d) => rootIds.includes(d.root.id));
+      if (!moving.length) return;
+      const rest = (part: KmlDocument[]) => part.filter((d) => !moving.includes(d));
+      const next = [...rest(docs.slice(0, index)), ...moving, ...rest(docs.slice(index))];
+      if (next.every((d, i) => d === docs[i])) return;
+      // Not a document edit (nothing to save or undo), but the globe must
+      // redraw in the new order: a scene rebuild, without reframing the camera.
+      set((s) => ({
+        docs: next,
+        selection: moving.map((d) => d.root.id),
+        sceneEpoch: s.sceneEpoch + 1,
+        revision: s.revision + 1,
+      }));
     },
     remove(ids) {
       let closedAny = false;

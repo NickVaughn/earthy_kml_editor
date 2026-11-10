@@ -628,8 +628,10 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
-  // Walk every open document's placemarks (node ids are globally unique).
+  // Walk every open document's placemarks (node ids are globally unique), in
+  // layer-list order: each file's draped fills paint over the files above it.
   for (const doc of docs) {
+    groundPolygonBatches.nextGroup();
     const drape = drapedDocs.has(doc);
     for (const node of doc.placemarksUnder()) {
       if (!node.geometry) continue;

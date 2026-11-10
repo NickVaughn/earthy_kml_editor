@@ -272,7 +272,8 @@ export function App(): JSX.Element {
   // ---- content edit: rebuild, keep the camera -----------------------------
   useEffect(() => {
     if (store.sceneEpoch === 0) return;
-    globeRef.current?.rebuild();
+    // Pass the docs along: a file reorder changes their order, not the set.
+    globeRef.current?.rebuild(useStore.getState().docs);
     void globeRef.current?.syncGroundOverlays();
   }, [store.sceneEpoch]);
 

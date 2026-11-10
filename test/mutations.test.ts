@@ -53,6 +53,24 @@ describe('structural mutations', () => {
     expect(shapes2.children.map((c) => c.name)).toContain('Origin');
   });
 
+  it('drops at the line drawn when reordering within one folder', () => {
+    // react-arborist's index counts the dragged rows still in place.
+    const doc = load('simple.kml');
+    const names = (): string[] => doc.root.children.map((c) => c.name);
+    const [points, shapes] = doc.root.children;
+    const folder = doc.createFolder(doc.root.id, undefined, 'Third')!;
+    expect(names()).toEqual(['Points', 'Shapes', 'Third']);
+
+    doc.move([points.id], doc.root.id, 2); // down: between Shapes and Third
+    expect(names()).toEqual(['Shapes', 'Points', 'Third']);
+    doc.move([folder.id], doc.root.id, 0); // up: to the top
+    expect(names()).toEqual(['Third', 'Shapes', 'Points']);
+    doc.move([folder.id, shapes.id], doc.root.id, 3); // both to the end
+    expect(names()).toEqual(['Points', 'Third', 'Shapes']);
+    doc.undo();
+    expect(names()).toEqual(['Third', 'Shapes', 'Points']);
+  });
+
   it('refuses to move a folder into its own descendant', () => {
     const doc = load('simple.kml');
     const shapes = [...doc.walk()].find((n) => n.name === 'Shapes')!;
