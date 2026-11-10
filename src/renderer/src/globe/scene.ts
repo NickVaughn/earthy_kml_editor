@@ -33,6 +33,7 @@ import { geoidHeight } from '@renderer/model/geoid';
 import { iconUrl } from '@renderer/model/overlays';
 import { kmlToCesium } from './cesiumColor';
 import { DrapeBatcher } from './drapeBatches';
+import { InstanceShow } from './instanceShow';
 
 // Defaults for features without an explicit style (configurable later).
 const DEFAULT_LINE = Color.WHITE;
@@ -639,11 +640,16 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     }
   }
 
+  // Show toggles on the batched primitives below. One still building when a
+  // toggle arrives gets it after the first frame it is ready (instanceShow.ts).
+  const instanceShow = new InstanceShow();
+  const flushShow = (): void => instanceShow.flush();
+  viewer.scene.postRender.addEventListener(flushShow);
+
   // One batched, flat Primitive for every polygon fill — a single draw call, no
   // classification. Added to our own collection, NOT scene.groundPrimitives.
-  let polygonPrimitive: Primitive | null = null;
   if (polygonInstances.length > 0) {
-    polygonPrimitive = new Primitive({
+    const polygonPrimitive = new Primitive({
       geometryInstances: polygonInstances,
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false }),
       releaseGeometryInstances: false,
@@ -652,20 +658,13 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     primitives.add(polygonPrimitive);
     for (const inst of polygonInstances) {
       const id = inst.id as string;
-      addToggle(id, {
-        set: (s) => {
-          if (!polygonPrimitive || !polygonPrimitive.ready) return;
-          const attr = polygonPrimitive.getGeometryInstanceAttributes(id);
-          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(s, attr.show);
-        },
-      });
+      addToggle(id, { set: (s) => instanceShow.set(polygonPrimitive, id, s) });
     }
   }
 
   // One batched Primitive for every hairline line — built in a worker.
-  let linePrimitive: Primitive | null = null;
   if (lineInstances.length > 0) {
-    linePrimitive = new Primitive({
+    const linePrimitive = new Primitive({
       geometryInstances: lineInstances,
       appearance: new PerInstanceColorAppearance({ flat: true, translucent: true }),
       releaseGeometryInstances: false,
@@ -674,13 +673,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     primitives.add(linePrimitive);
     for (const inst of lineInstances) {
       const id = inst.id as string;
-      addToggle(id, {
-        set: (s) => {
-          if (!linePrimitive || !linePrimitive.ready) return;
-          const attr = linePrimitive.getGeometryInstanceAttributes(id);
-          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(s, attr.show);
-        },
-      });
+      addToggle(id, { set: (s) => instanceShow.set(linePrimitive, id, s) });
     }
   }
 
@@ -708,13 +701,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     // Register toggles from the ids alone: holding the instances in these
     // closures would keep the released input geometry alive after all.
     for (const id of instances.map((i) => i.id as string)) {
-      addToggle(id, {
-        set: (sh) => {
-          if (!prim.ready) return;
-          const attr = prim.getGeometryInstanceAttributes(id);
-          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
-        },
-      });
+      addToggle(id, { set: (sh) => instanceShow.set(prim, id, sh) });
     }
     chunk.items = [];
   }
@@ -728,13 +715,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     });
     groundPrimitives.add(prim);
     for (const id of chunk.instances.map((i) => i.id as string)) {
-      addToggle(id, {
-        set: (sh) => {
-          if (!prim.ready) return;
-          const attr = prim.getGeometryInstanceAttributes(id);
-          if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(sh, attr.show);
-        },
-      });
+      addToggle(id, { set: (sh) => instanceShow.set(prim, id, sh) });
     }
     chunk.instances = [];
   }
@@ -758,6 +739,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       if (arr) for (const t of arr) t.set(show);
     },
     dispose() {
+      viewer.scene.postRender.removeEventListener(flushShow);
       viewer.scene.primitives.remove(primitives); // destroys children
       viewer.scene.groundPrimitives.remove(groundPrimitives);
     },
