@@ -47,6 +47,7 @@ import {
 import { DrawTool, type DrawKind } from './DrawTool';
 import { EditTool } from './EditTool';
 import { RulerTool, type RulerCallbacks } from './RulerTool';
+import { nodeIdOf } from './instanceShow';
 import type { RulerShape } from '@renderer/model/ruler';
 import {
   nadirOrientation,
@@ -186,7 +187,7 @@ export class GlobeRenderer {
       if (this.activeTool) return; // draw/edit tool owns clicks
       const picked = this.viewer.scene.pick(click.position);
       if (defined(picked) && picked.id && typeof picked.id === 'string') {
-        handlers.onPick(picked.id);
+        handlers.onPick(nodeIdOf(picked.id));
       } else {
         handlers.onPick(null);
       }
@@ -208,7 +209,7 @@ export class GlobeRenderer {
   private emitContextMenu(canvasPos: Cartesian2): void {
     const picked = this.viewer.scene.pick(canvasPos);
     const id =
-      defined(picked) && picked.id && typeof picked.id === 'string' ? picked.id : null;
+      defined(picked) && picked.id && typeof picked.id === 'string' ? nodeIdOf(picked.id) : null;
     const rect = this.viewer.scene.canvas.getBoundingClientRect();
     this.handlers.onContextMenu(id, rect.left + canvasPos.x, rect.top + canvasPos.y);
   }

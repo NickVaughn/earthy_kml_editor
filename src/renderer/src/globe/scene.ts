@@ -33,7 +33,7 @@ import { geoidHeight } from '@renderer/model/geoid';
 import { iconUrl } from '@renderer/model/overlays';
 import { kmlToCesium } from './cesiumColor';
 import { DrapeBatcher } from './drapeBatches';
-import { InstanceShow } from './instanceShow';
+import { InstanceShow, instanceIds, nodeIdOf } from './instanceShow';
 
 // Defaults for features without an explicit style (configurable later).
 const DEFAULT_LINE = Color.WHITE;
@@ -359,6 +359,10 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
   const toggles = new Map<string, ShowToggle[]>();
   const cartesianAccum = new Map<string, Cartesian3[]>();
 
+  // One id per batched instance, so each part of a multi-part placemark can
+  // be shown and hidden on its own (instanceShow.ts). Toggles stay per node.
+  const partId = instanceIds();
+
   const addToggle = (id: string, t: ShowToggle) => {
     const arr = toggles.get(id);
     if (arr) arr.push(t);
@@ -399,7 +403,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     positions: Cartesian3[],
     width: number,
     color: Color,
-    id: string,
+    nodeId: string,
     show: boolean,
   ): void => {
     stats.groundLines++;
@@ -412,7 +416,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
           color: ColorGeometryInstanceAttribute.fromColor(color),
           show: new ShowGeometryInstanceAttribute(show),
         },
-        id,
+        id: partId(nodeId),
       }),
       positions.length,
     );
@@ -422,15 +426,16 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     positions: Cartesian3[],
     width: number,
     color: Color,
-    id: string,
+    nodeId: string,
     show: boolean,
   ): void => {
     if (width > 1) {
       stats.wideLines++;
       stats.wideLinePositions += positions.length;
-      const line = polylines.add({ positions, width, material: undefined, show, id });
+      // A collection item toggles through its own object: the node id is fine.
+      const line = polylines.add({ positions, width, material: undefined, show, id: nodeId });
       line.material = polylineColorMaterial(color);
-      addToggle(id, { set: (s) => (line.show = s) });
+      addToggle(nodeId, { set: (s) => (line.show = s) });
       return;
     }
     stats.hairlines++;
@@ -444,7 +449,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
           color: ColorGeometryInstanceAttribute.fromColor(color),
           show: new ShowGeometryInstanceAttribute(show),
         },
-        id,
+        id: partId(nodeId),
       }),
     );
   };
@@ -574,6 +579,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
             // No height: GroundPrimitive uses the footprint and classifies
             // against the surface.
             const geometry = new PolygonGeometry({ polygonHierarchy: hierarchy });
+            const id = partId(node.id);
             groundPolygonBatches.add(
               new GeometryInstance({
                 geometry,
@@ -581,9 +587,9 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
                   color: fillColor,
                   show: new ShowGeometryInstanceAttribute(startVisible),
                 },
-                id: node.id,
+                id,
               }),
-              node.id,
+              id,
               // The same bounding rectangle GroundPrimitive itself works from.
               PolygonGeometry.computeRectangleFromPositions(outer),
               g.outerBoundary.length +
@@ -609,7 +615,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
                   color: fillColor,
                   show: new ShowGeometryInstanceAttribute(startVisible),
                 },
-                id: node.id,
+                id: partId(node.id),
               }),
             );
           }
@@ -658,7 +664,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     primitives.add(polygonPrimitive);
     for (const inst of polygonInstances) {
       const id = inst.id as string;
-      addToggle(id, { set: (s) => instanceShow.set(polygonPrimitive, id, s) });
+      addToggle(nodeIdOf(id), { set: (s) => instanceShow.set(polygonPrimitive, id, s) });
     }
   }
 
@@ -673,7 +679,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     primitives.add(linePrimitive);
     for (const inst of lineInstances) {
       const id = inst.id as string;
-      addToggle(id, { set: (s) => instanceShow.set(linePrimitive, id, s) });
+      addToggle(nodeIdOf(id), { set: (s) => instanceShow.set(linePrimitive, id, s) });
     }
   }
 
@@ -701,7 +707,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     // Register toggles from the ids alone: holding the instances in these
     // closures would keep the released input geometry alive after all.
     for (const id of instances.map((i) => i.id as string)) {
-      addToggle(id, { set: (sh) => instanceShow.set(prim, id, sh) });
+      addToggle(nodeIdOf(id), { set: (sh) => instanceShow.set(prim, id, sh) });
     }
     chunk.items = [];
   }
@@ -715,7 +721,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
     });
     groundPrimitives.add(prim);
     for (const id of chunk.instances.map((i) => i.id as string)) {
-      addToggle(id, { set: (sh) => instanceShow.set(prim, id, sh) });
+      addToggle(nodeIdOf(id), { set: (sh) => instanceShow.set(prim, id, sh) });
     }
     chunk.instances = [];
   }

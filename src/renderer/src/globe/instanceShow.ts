@@ -39,6 +39,32 @@ export class InstanceShow {
   }
 }
 
+/**
+ * Instance ids for batched geometry, one per part.
+ *
+ * Cesium finds an instance's attributes by scanning for its id and stopping at
+ * the first match, then caches that by id, so instances sharing an id in one
+ * primitive all answer to the first. A multi-part placemark (MultiGeometry)
+ * makes one instance per part, and parts that do not overlap share a batch:
+ * hiding the placemark hid one part and left the rest drawn. So the first part
+ * keeps the node id and the others get `<node id>~<n>`; `nodeIdOf` maps any of
+ * them back, for picks. (Node ids are `n` plus base-36 digits, never `~`.)
+ */
+export function instanceIds(): (nodeId: string) => string {
+  const parts = new Map<string, number>();
+  return (nodeId) => {
+    const n = parts.get(nodeId) ?? 0;
+    parts.set(nodeId, n + 1);
+    return n === 0 ? nodeId : `${nodeId}~${n}`;
+  };
+}
+
+/** The node an instance id from `instanceIds` belongs to. */
+export function nodeIdOf(instanceId: string): string {
+  const i = instanceId.indexOf('~');
+  return i < 0 ? instanceId : instanceId.slice(0, i);
+}
+
 function apply(prim: InstanceShowTarget, id: string, show: boolean): void {
   const attr = prim.getGeometryInstanceAttributes(id);
   if (attr) attr.show = ShowGeometryInstanceAttribute.toValue(show, attr.show);
