@@ -30,7 +30,8 @@ It works and it's tested, but it's a hobby/learning artifact first.
 - Draw and edit points, lines, and polygons directly on the globe, including
   freehand **Shift-drag** sketching and square vertex handles.
 - A layer tree with multi-select, drag-to-reorder, folders, visibility toggles,
-  and right-click menus.
+  and right-click menus. Drag whole files to set draw order: files lower in the
+  list paint over the ones above them.
 - Restyle features or whole folders — a single uniform style, or colour-by-field
   categorization (like the import flow).
 - Save a colour-by-field mapping (per-value colours, labels and opacities) as a

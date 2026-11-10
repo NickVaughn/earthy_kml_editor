@@ -353,7 +353,28 @@ export class GlobeRenderer {
         this.overlayPending.delete(id);
       }
     }
+    this.stackOverlays();
     this.viewer.scene.requestRender();
+  }
+
+  /**
+   * Stack overlay imagery in layer-list order, later on top, so a file lower in
+   * the list covers the ones above it, as its vectors do. A layer goes on top
+   * when its image arrives, so after a reorder or a late decode the stack can
+   * be out of order; only then is it rebuilt (the base map stays at the bottom).
+   */
+  private stackOverlays(): void {
+    const layers: ImageryLayer[] = [];
+    for (const doc of this.docs) {
+      for (const node of doc.walk()) {
+        const entry = node.type === 'GroundOverlay' ? this.overlayLayers.get(node.id) : undefined;
+        if (entry) layers.push(entry.layer);
+      }
+    }
+    const collection = this.viewer.imageryLayers;
+    const at = layers.map((l) => collection.indexOf(l));
+    if (at.every((v, i) => i === 0 || at[i - 1] < v)) return;
+    for (const layer of layers) collection.raiseToTop(layer);
   }
 
   /** Fly to a raster overlay's extent. */
@@ -386,8 +407,12 @@ export class GlobeRenderer {
     if (frame) this.zoomToAll();
   }
 
-  /** Rebuild the scene after an edit, keeping the camera. */
-  rebuild(): void {
+  /**
+   * Rebuild the scene after an edit, keeping the camera and selection. Pass
+   * `docs` when the same files come in a new order (draw order follows it).
+   */
+  rebuild(docs?: KmlDocument[]): void {
+    if (docs) this.docs = docs;
     this.rebuildScene();
   }
 

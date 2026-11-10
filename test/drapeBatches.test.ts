@@ -40,4 +40,25 @@ describe('DrapeBatcher', () => {
     b.add('c', 'c', rect(4, 4, 5, 5), 4); // fits the first batch again
     expect(b.batches.map((x) => x.items)).toEqual([['a', 'c'], ['b']]);
   });
+
+  it('puts a later group above every earlier fill it overlaps', () => {
+    const b = new DrapeBatcher<string>(1000);
+    b.add('a', 'a', rect(0, 0, 2, 2), 4);
+    b.add('b', 'b', rect(1, 1, 3, 3), 4); // overlaps a → batch 1
+    b.nextGroup();
+    // Overlaps only b. First-fit would take batch 0 and draw under b.
+    b.add('c', 'c', rect(2.5, 2.5, 4, 4), 4);
+    // Overlaps nothing earlier: free to share batch 0.
+    b.add('d', 'd', rect(10, 10, 11, 11), 4);
+    expect(b.batches.map((x) => x.items)).toEqual([['a', 'd'], ['b'], ['c']]);
+  });
+
+  it('keeps first-fit within a group', () => {
+    const b = new DrapeBatcher<string>(1000);
+    b.nextGroup();
+    b.add('a', 'a', rect(0, 0, 2, 2), 4);
+    b.add('b', 'b', rect(1, 1, 3, 3), 4);
+    b.add('c', 'c', rect(2.5, 2.5, 4, 4), 4); // overlaps only b, same group
+    expect(b.batches.map((x) => x.items)).toEqual([['a', 'c'], ['b']]);
+  });
 });

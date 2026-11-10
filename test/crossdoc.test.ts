@@ -99,3 +99,49 @@ describe('cross-document drag', () => {
     expect(shapes.children[0].name).toBe('Origin');
   });
 });
+
+describe('file reordering', () => {
+  beforeEach(() => {
+    useStore.setState({ docs: [], activeDocId: null, selection: [] });
+  });
+
+  function openThree() {
+    const s = useStore.getState();
+    for (const path of ['/a.kml', '/b.kml', '/c.kml']) {
+      s.openDoc({ path, kml: EMPTY_KML, resources: {}, wasKmz: false });
+    }
+    return useStore.getState().docs;
+  }
+  const paths = (): (string | null)[] => useStore.getState().docs.map((d) => d.path);
+
+  it('moves files to the drop slot, counting the dragged rows', () => {
+    const [a, , c] = openThree();
+    useStore.getState().reorderDocs([a.root.id], 2); // between b and c
+    expect(paths()).toEqual(['/b.kml', '/a.kml', '/c.kml']);
+    useStore.getState().reorderDocs([c.root.id], 0);
+    expect(paths()).toEqual(['/c.kml', '/b.kml', '/a.kml']);
+    // Several at once keep their list order, wherever they were picked from.
+    useStore.getState().reorderDocs([a.root.id, c.root.id], 3);
+    expect(paths()).toEqual(['/b.kml', '/c.kml', '/a.kml']);
+  });
+
+  it('redraws without dirtying files or reframing the camera', () => {
+    const [a] = openThree();
+    const before = useStore.getState();
+    useStore.getState().reorderDocs([a.root.id], 3);
+    const after = useStore.getState();
+    expect(after.sceneEpoch).toBe(before.sceneEpoch + 1);
+    expect(after.docEpoch).toBe(before.docEpoch);
+    expect(after.dirty).toBe(false);
+    expect(after.docs.some((d) => d.dirty)).toBe(false);
+    expect(after.selection).toEqual([a.root.id]);
+  });
+
+  it('does nothing when the order would not change', () => {
+    const [a] = openThree();
+    const before = useStore.getState();
+    useStore.getState().reorderDocs([a.root.id], 1); // just below itself
+    expect(useStore.getState().docs).toBe(before.docs);
+    expect(useStore.getState().sceneEpoch).toBe(before.sceneEpoch);
+  });
+});
