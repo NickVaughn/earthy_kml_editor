@@ -1,6 +1,8 @@
 import {
   Cesium3DTileset,
+  Google2DImageryProvider,
   ImageryProvider,
+  Ion,
   IonImageryProvider,
   IonResource,
   UrlTemplateImageryProvider,
@@ -8,6 +10,7 @@ import {
   Credit,
 } from 'cesium';
 import type { GoogleMapType } from '@shared/ipc';
+import type { LabelSource } from '@shared/labels';
 
 export interface BasemapDef {
   id: string;
@@ -145,4 +148,41 @@ export const BASEMAPS: BasemapDef[] = [
 
 export function basemapById(id: string): BasemapDef {
   return BASEMAPS.find((b) => b.id === id) ?? BASEMAPS[0];
+}
+
+/** Transparent place-name overlay for a label source (see shared/labels.ts). */
+export async function buildLabels(source: LabelSource): Promise<ImageryProvider> {
+  if (source === 'ion') {
+    // The ion Google Maps 2D satellite asset the default basemap streams,
+    // asked for its roadmap layer as a transparent overlay (Google's
+    // `overlay: true` session) — the labels and roads of Google Hybrid without
+    // the imagery under them.
+    //
+    // fromIonAssetId takes no token argument; it reads Ion.defaultAccessToken
+    // when it builds the endpoint request, synchronously, before its first
+    // await. Set it for that call only, so the token stays scoped as it is
+    // everywhere else (see terrain.ts). (IonImageryProvider.fromAssetId does
+    // take a token, but caches endpoints by asset + token alone, so it would
+    // return the basemap's opaque satellite session for the same asset.)
+    const token = await ionToken();
+    const previous = Ion.defaultAccessToken;
+    Ion.defaultAccessToken = token;
+    let pending: Promise<Google2DImageryProvider>;
+    try {
+      pending = Google2DImageryProvider.fromIonAssetId({
+        assetId: '3830182',
+        overlayLayerType: 'layerRoadmap',
+      });
+    } finally {
+      Ion.defaultAccessToken = previous;
+    }
+    // The cast papers over Cesium's typings: Google2DImageryProvider's
+    // getTileCredits is declared `Credit[] | undefined`, ImageryProvider's
+    // `Credit[]`. It is an ImageryProvider at runtime.
+    return (await pending) as unknown as ImageryProvider;
+  }
+  return ArcGisMapServerImageryProvider.fromUrl(
+    'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer',
+    { credit: new Credit('Labels © Esri', true) },
+  );
 }

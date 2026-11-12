@@ -15,6 +15,8 @@ const DEFAULTS: AppSettings = {
   rulerAreaUnit: 'm2',
   rulerMouseNav: true,
   geocoder: 'osm',
+  showLabels: false,
+  labelSource: 'ion',
 };
 
 interface Schema {

@@ -43,6 +43,7 @@ import type { CsvOptions } from '@shared/gdal';
 import type { StylePreset } from '@shared/stylePresets';
 import { BUILTIN_TERRAIN, terrainSourceById } from '../shared/terrain';
 import { GEOCODE_SOURCES, type GeocodeSource } from '../shared/geocode';
+import { LABEL_SOURCES, effectiveLabelSource } from '../shared/labels';
 
 let mainWindow: BrowserWindow | null = null;
 /** A path passed on the command line / via file association before the window is ready. */
@@ -365,6 +366,34 @@ function buildMenu(): void {
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Show Place Labels',
+          type: 'checkbox',
+          checked: settings.showLabels,
+          click: () => {
+            sendSettings(setSettings({ showLabels: !getSettings().showLabels }));
+            buildMenu();
+          },
+        },
+        {
+          label: 'Label Source',
+          submenu: LABEL_SOURCES.map(
+            (s): MenuItemConstructorOptions => ({
+              label: s.needsIonKey && !getIonToken() ? `${s.label} (no key)` : s.label,
+              type: 'radio',
+              // Tick the source actually drawn: without a token that's Esri.
+              checked:
+                effectiveLabelSource(settings.labelSource, getIonToken() !== null) === s.id,
+              enabled: !s.needsIonKey || getIonToken() !== null,
+              click: () => {
+                // Picking a source implies wanting to see it.
+                sendSettings(setSettings({ labelSource: s.id, showLabels: true }));
+                buildMenu();
+              },
+            }),
+          ),
+        },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },

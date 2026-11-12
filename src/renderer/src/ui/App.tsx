@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '@renderer/state/store';
 import { GlobeRenderer } from '@renderer/globe/GlobeRenderer';
-import { basemapById } from '@renderer/globe/imagery';
+import { basemapById, buildLabels } from '@renderer/globe/imagery';
+import { effectiveLabelSource, labelSourceLabel } from '@shared/labels';
 import { terrainProviderFor } from '@renderer/globe/terrain';
 import { loadGeoid, geoidHeight } from '@renderer/model/geoid';
 import type { AppSettings } from '@shared/ipc';
@@ -180,6 +181,7 @@ export function App(): JSX.Element {
         loadGeoid().then(() => mark('geoid loaded')),
       ]);
       void applyTerrain(settings).then(() => mark('terrain applied'));
+      void applyLabels(settings);
     })();
   }, []);
 
@@ -207,6 +209,43 @@ export function App(): JSX.Element {
         await globe.setBasemap(basemapById('esri').build({}));
       }
     }
+  }, []);
+
+  // Guards against a slow provider landing after a newer toggle.
+  const labelsEpoch = useRef(0);
+  const applyLabels = useCallback(async (s: AppSettings) => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    const epoch = ++labelsEpoch.current;
+    let provider = null;
+    if (s.showLabels) {
+      // No ion token means Esri, quietly — as with the basemap, a missing key
+      // is an expected state. A real ion failure falls back to Esri too, but
+      // says so.
+      const source = effectiveLabelSource(s.labelSource, useStore.getState().hasIonKey);
+      try {
+        provider = await buildLabels(source);
+      } catch (err) {
+        console.error('Labels failed:', err);
+        const why = err instanceof Error ? err.message : String(err);
+        if (source !== 'esri') {
+          flash(
+            `“${labelSourceLabel(source)}” failed to load — showing Esri labels instead. ${why}`,
+            12000,
+          );
+          try {
+            provider = await buildLabels('esri');
+          } catch (err2) {
+            const why2 = err2 instanceof Error ? err2.message : String(err2);
+            flash(`Place labels failed to load. ${why2}`, 12000);
+          }
+        } else {
+          flash(`Place labels failed to load. ${why}`, 12000);
+        }
+      }
+    }
+    if (epoch !== labelsEpoch.current) return; // superseded by a newer toggle
+    globe.setLabels(provider);
   }, []);
 
   // Guards against a slow ion bootstrap landing after a newer toggle.
@@ -253,10 +292,16 @@ export function App(): JSX.Element {
     });
   }, [applyTerrain]);
 
-  // ---- other settings changed from a native menu (Search source) ----------
+  // ---- other settings changed from a native menu (Search, View ▸ labels) ---
   useEffect(() => {
-    return window.api.onSettingsChanged((s) => useStore.getState().setSettings(s));
-  }, []);
+    return window.api.onSettingsChanged((s) => {
+      const prev = useStore.getState().settings;
+      useStore.getState().setSettings(s);
+      if (prev.showLabels !== s.showLabels || prev.labelSource !== s.labelSource) {
+        void applyLabels(s);
+      }
+    });
+  }, [applyLabels]);
 
   // ---- coastline download progress from the Terrain menu -------------------
   useEffect(() => {

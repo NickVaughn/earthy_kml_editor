@@ -181,6 +181,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   rulerAreaUnit: 'm2',
   rulerMouseNav: true,
   geocoder: 'osm',
+  showLabels: false,
+  labelSource: 'ion',
 };
 
 export const useStore = create<AppState>((set, get) => {
