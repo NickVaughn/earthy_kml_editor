@@ -94,6 +94,8 @@ export class GlobeRenderer {
   private activeTool: { dispose(): void } | null = null;
   private handlers: GlobeHandlers;
   private baseLayer: ImageryLayer | null = null;
+  /** Place-name overlay; always the top imagery layer. */
+  private labelsLayer: ImageryLayer | null = null;
   /** Imagery layers for GroundOverlay nodes, by node id. */
   private overlayLayers = new Map<string, { layer: ImageryLayer; href: string }>();
   /** Overlay ids whose image is currently decoding (guards concurrent syncs). */
@@ -230,6 +232,20 @@ export class GlobeRenderer {
     if (previous) this.viewer.imageryLayers.remove(previous, true);
   }
 
+  /**
+   * Show the place-name overlay from `provider`, or remove it (null). It goes
+   * on top of the base map and every GroundOverlay, as labels do in Google
+   * Earth; stackOverlays keeps it there as overlays arrive.
+   */
+  setLabels(provider: ImageryProvider | null): void {
+    if (this.labelsLayer) {
+      this.viewer.imageryLayers.remove(this.labelsLayer, true);
+      this.labelsLayer = null;
+    }
+    if (provider) this.labelsLayer = this.viewer.imageryLayers.addImageryProvider(provider);
+    this.viewer.scene.requestRender();
+  }
+
   /** Stream (or tear down) a photorealistic 3D tileset over the globe. */
   setPhotorealistic(tileset: Cesium3DTileset | null): void {
     if (this.photoTiles) {
@@ -363,6 +379,7 @@ export class GlobeRenderer {
    * the list covers the ones above it, as its vectors do. A layer goes on top
    * when its image arrives, so after a reorder or a late decode the stack can
    * be out of order; only then is it rebuilt (the base map stays at the bottom).
+   * The place-name labels, if shown, go last, above every overlay.
    */
   private stackOverlays(): void {
     const layers: ImageryLayer[] = [];
@@ -372,6 +389,7 @@ export class GlobeRenderer {
         if (entry) layers.push(entry.layer);
       }
     }
+    if (this.labelsLayer) layers.push(this.labelsLayer);
     const collection = this.viewer.imageryLayers;
     const at = layers.map((l) => collection.indexOf(l));
     if (at.every((v, i) => i === 0 || at[i - 1] < v)) return;

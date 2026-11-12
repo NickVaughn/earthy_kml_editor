@@ -75,6 +75,12 @@ It works and it's tested, but it's a hobby/learning artifact first.
   OpenStreetMap keyless; ion satellite (Google), Sentinel-2, NASA's Earth at
   Night, and Google Photorealistic 3D with an ion token; Google Hybrid /
   Roadmap / Terrain with a Google Maps key.
+- **Place labels over any basemap** — **View ▸ Show Place Labels** draws
+  place names (cities, water bodies, and so on) above the imagery and any
+  ground overlays. **View ▸ Label Source** picks Google labels and roads via
+  Cesium ion (the default, with an ion token) or Esri Boundaries and Places
+  (keyless, and the fallback without a token). Photorealistic 3D meshes hide
+  them, as they hide the basemap.
 
 ## API keys (all optional)
 
@@ -82,8 +88,8 @@ Everything works keyless (Esri imagery + AWS terrain). Two keys unlock more:
 
 - `EARTHY_ION_TOKEN` — a [Cesium ion](https://ion.cesium.com) access token
   (free Community tier). Unlocks Cesium World Terrain, World Bathymetry (add it
-  to your ion assets from the Asset Depot first), the ion basemaps, and the
-  Cesium ion place-name search.
+  to your ion assets from the Asset Depot first), the ion basemaps, the
+  Google place labels, and the Cesium ion place-name search.
 - `EARTHY_GOOGLE_MAPS_API_KEY` — a Google Maps Platform key with the Map Tiles
   API enabled. Unlocks the Google Hybrid / Roadmap / Terrain basemaps.
 

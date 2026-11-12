@@ -75,6 +75,10 @@ export interface AppSettings {
   rulerMouseNav: boolean;
   /** Place-name search source (see shared/geocode.ts). */
   geocoder: import('./geocode').GeocodeSource;
+  /** Draw the place-name overlay above the basemap (View menu). */
+  showLabels: boolean;
+  /** Place-name overlay source (see shared/labels.ts). */
+  labelSource: import('./labels').LabelSource;
 }
 
 /** The bundled EGM96 geoid grid, parsed in main and sampled in the renderer. */
