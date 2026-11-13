@@ -76,6 +76,16 @@ function overlayAlpha(node: KmlNode): number {
   return parseInt(color.slice(0, 2), 16) / 255;
 }
 
+let blank: HTMLCanvasElement | null = null;
+/** A fully transparent tile, shared by every layer that hides shallow levels. */
+function blankTile(): HTMLCanvasElement {
+  if (!blank) {
+    blank = document.createElement('canvas');
+    blank.width = blank.height = 1;
+  }
+  return blank;
+}
+
 export class GlobeRenderer {
   readonly viewer: Viewer;
   private docs: KmlDocument[] = [];
@@ -348,6 +358,13 @@ export class GlobeRenderer {
           minimumLevel: web.minZoom,
           maximumLevel: web.maxZoom,
         });
+        const hideBelow = web.hideBelow ?? 0;
+        if (hideBelow > 0) {
+          // Answer shallow tiles with a blank instead of asking the server.
+          const request = provider.requestImage.bind(provider);
+          provider.requestImage = (x, y, level, req) =>
+            level < hideBelow ? Promise.resolve(blankTile()) : request(x, y, level, req);
+        }
         const layer = this.viewer.imageryLayers.addImageryProvider(provider);
         layer.show = doc.isEffectivelyVisible(node);
         layer.alpha = overlayAlpha(node);

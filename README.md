@@ -66,6 +66,8 @@ It works and it's tested, but it's a hobby/learning artifact first.
   Only the URL is stored, so it saves in plain KML and reloads next time.
   Tilesets must be Web Mercator (a WMS may also be plain lon/lat); past a
   tileset's zoom range the nearest level is stretched to fit.
+  A layer can be told not to load at wide views, for servers too slow to
+  draw them.
 - **Optional 3D terrain** — real relief toggled live from the Terrain menu.
   AWS Terrarium tiles are built in and keyless, with decode-time repair of the
   source's coastal defects and optional sea-floor rendering; with a free

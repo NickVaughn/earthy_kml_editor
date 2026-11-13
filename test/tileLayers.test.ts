@@ -157,6 +157,7 @@ describe('tile layer nodes', () => {
       maxZoom: 15,
       bounds: [-158.3, 21.2, -157.6, 21.7] as [number, number, number, number],
       source: 'https://example.com/caps.xml',
+      hideBelow: 7,
     };
     doc.addTileLayer(null, { name: 'Oahu', tiles });
 

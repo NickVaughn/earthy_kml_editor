@@ -790,7 +790,10 @@ export function App(): JSX.Element {
           onAdd={(layer) => {
             setTileDialogOpen(false);
             useStore.getState().addTileLayer(layer);
-            if (layer.tiles.bounds) globeRef.current?.flyToBounds(layer.tiles.bounds);
+            // A layer hidden at wide views would show nothing from its full extent.
+            if (layer.tiles.bounds && !layer.tiles.hideBelow) {
+              globeRef.current?.flyToBounds(layer.tiles.bounds);
+            }
           }}
         />
       )}

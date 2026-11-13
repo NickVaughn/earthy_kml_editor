@@ -669,6 +669,10 @@ body,
 .modal .insp-row > .tile-zoom-to {
   width: auto;
 }
+.modal .insp-row > input.tile-zoom {
+  flex: 0 0 48px;
+  width: 48px;
+}
 .modal-summary code {
   color: var(--text);
 }

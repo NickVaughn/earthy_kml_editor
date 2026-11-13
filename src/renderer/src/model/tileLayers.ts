@@ -17,6 +17,7 @@ export const TILE_URL_KEY = 'earthy:tileUrl';
 /** Where the template came from (a WMTS capabilities URL), for reference. */
 export const TILE_SOURCE_KEY = 'earthy:tileSource';
 export const TILE_GRID_KEY = 'earthy:tileGrid';
+export const TILE_HIDE_BELOW_KEY = 'earthy:tileHideBelow';
 
 /** Web Mercator's latitude limit. */
 export const MERCATOR_MAX_LAT = 85.0511287798;
@@ -35,6 +36,11 @@ export interface TileLayerSpec {
    * across at level 0), which is what a WMS without Web Mercator is asked for.
    */
   grid?: 'geographic';
+  /**
+   * Request nothing while the view is zoomed out past this level. For servers
+   * that time out rendering a wide view (a WMS over a large vector dataset).
+   */
+  hideBelow?: number;
 }
 
 const BBOX_PLACEHOLDER = /\{(west|south|east|north)(Projected|Degrees)?\}/;
@@ -84,6 +90,8 @@ export function tileLayerInfo(node: KmlNode): TileLayerSpec | null {
   const source = value(TILE_SOURCE_KEY);
   if (source) spec.source = source;
   if (value(TILE_GRID_KEY) === 'geographic') spec.grid = 'geographic';
+  const hideBelow = Number(value(TILE_HIDE_BELOW_KEY));
+  if (Number.isInteger(hideBelow) && hideBelow > 0) spec.hideBelow = hideBelow;
   const b = node.overlay?.box;
   if (b) spec.bounds = [b.west, b.south, b.east, b.north];
   return spec;
@@ -105,6 +113,7 @@ export function tileLayerExtendedData(spec: TileLayerSpec): {
   ];
   if (spec.source) fields.push({ name: TILE_SOURCE_KEY, value: spec.source });
   if (spec.grid) fields.push({ name: TILE_GRID_KEY, value: spec.grid });
+  if (spec.hideBelow) fields.push({ name: TILE_HIDE_BELOW_KEY, value: String(spec.hideBelow) });
   const raw = `<ExtendedData>${fields
     .map((f) => `<Data name="${f.name}"><value>${esc(f.value)}</value></Data>`)
     .join('')}</ExtendedData>`;

@@ -35,6 +35,8 @@ export function TileLayerDialog({
   const [name, setName] = useState('');
   const [minZoom, setMinZoom] = useState('0');
   const [maxZoom, setMaxZoom] = useState(String(DEFAULT_MAX_ZOOM));
+  /** Optional: no requests while the view is zoomed out past this level. */
+  const [hideBelow, setHideBelow] = useState('');
   /** Layers read from a capabilities document, and which is chosen. */
   const [layers, setLayers] = useState<ServiceLayer[] | null>(null);
   const [layerId, setLayerId] = useState('');
@@ -105,14 +107,18 @@ export function TileLayerDialog({
         ? 'Zoom levels must be whole numbers, minimum ≤ maximum'
         : null)
     : null;
-  const ready = template ? !templateError : !!layer;
+  const zHide = hideBelow.trim() === '' ? 0 : zoomOf(hideBelow);
+  const hideError = zHide === null ? 'The zoomed-out limit must be a whole number, or blank' : null;
+  const ready = !hideError && (template ? !templateError : !!layer);
+  const withHide = (tiles: TileLayerSpec): TileLayerSpec =>
+    zHide ? { ...tiles, hideBelow: zHide } : tiles;
 
   const add = (): void => {
     if (template && zMin !== null && zMax !== null) {
       const tiles = { url: normalizeTileTemplate(trimmed), minZoom: zMin, maxZoom: zMax };
-      onAdd({ name: name.trim() || hostOf(tiles.url), tiles });
+      onAdd({ name: name.trim() || hostOf(tiles.url), tiles: withHide(tiles) });
     } else if (layer?.tiles) {
-      onAdd({ name: name.trim() || layer.title, tiles: layer.tiles });
+      onAdd({ name: name.trim() || layer.title, tiles: withHide(layer.tiles) });
     }
   };
 
@@ -209,8 +215,27 @@ export function TileLayerDialog({
                 `${skipped[0].error}`}
           </div>
         )}
-        {(error || (template && templateError)) && (
-          <div className="modal-summary tile-error">{error ?? templateError}</div>
+        {(template || layer) && (
+          <>
+            <label className="insp-row">
+              <span>Hide below</span>
+              <input
+                type="text"
+                className="tile-zoom"
+                value={hideBelow}
+                placeholder="—"
+                onChange={(e) => setHideBelow(e.target.value)}
+              />
+              <span className="tile-zoom-to">zoom level (optional)</span>
+            </label>
+            <div className="modal-summary">
+              Leave blank to draw at every zoom. Some servers time out drawing a wide view; a
+              level here (try 7) asks for nothing until the view is zoomed in that far.
+            </div>
+          </>
+        )}
+        {(error || hideError || (template && templateError)) && (
+          <div className="modal-summary tile-error">{error ?? hideError ?? templateError}</div>
         )}
 
         <div className="modal-actions">
