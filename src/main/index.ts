@@ -342,6 +342,12 @@ function buildMenu(): void {
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenu('saveAs') },
         { type: 'separator' },
         {
+          label: 'Add Tile Layer…',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => sendMenu('addTileLayer'),
+        },
+        { type: 'separator' },
+        {
           label: 'Import Style Presets…',
           click: () => mainWindow && void importStylePresets(mainWindow),
         },
@@ -573,6 +579,14 @@ function registerIpc(): void {
     },
   );
 
+  ipcMain.handle('fetch-text', async (_e, url: string) => {
+    if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs can be fetched');
+    const res = await net.fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());
+    const text = await res.text();
+    if (text.length > 50_000_000) throw new Error('Document is too large');
+    return text;
+  });
   ipcMain.handle('get-geoid-grid', () => getGeoidGrid());
 
   ipcMain.handle('get-settings', () => getSettings());

@@ -5,6 +5,7 @@ import { nextId } from './ids';
 import { applyBulkStyle, type StylePatch } from './bulkStyle';
 import { buildStyle, placemarkFieldValue, type CategorySpec } from './geojson';
 import { tileMarkerExtendedData, tiledOverlayInfo } from './overlays';
+import { MERCATOR_MAX_LAT, tileLayerExtendedData, type TileLayerSpec } from './tileLayers';
 import type {
   KmlDocumentData,
   KmlNode,
@@ -772,6 +773,38 @@ export class KmlDocument {
 
     const att = this.attach(container.id, undefined, [node]);
     this.pushExternalUndo('Add tiled overlay', att.revert, att.apply);
+    return node.id;
+  }
+
+  /**
+   * Add a web tile layer: a GroundOverlay that streams from a tile URL
+   * template (see model/tileLayers.ts). Nothing is embedded. One undoable step.
+   */
+  addTileLayer(parentId: string | null, o: { name: string; tiles: TileLayerSpec }): string {
+    let parent = parentId ? this.nodeById(parentId) : this.data.root;
+    if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
+    const container = parent ?? this.data.root;
+
+    const [west, south, east, north] = o.tiles.bounds ?? [
+      -180,
+      -MERCATOR_MAX_LAT,
+      180,
+      MERCATOR_MAX_LAT,
+    ];
+    const node: KmlNode = {
+      id: nextId(),
+      type: 'GroundOverlay',
+      name: o.name,
+      visible: true,
+      children: [],
+      unknownChildren: [],
+      attrs: {},
+      overlay: { href: o.tiles.url, box: { north, south, east, west } },
+      extendedData: tileLayerExtendedData(o.tiles),
+    };
+
+    const att = this.attach(container.id, undefined, [node]);
+    this.pushExternalUndo('Add tile layer', att.revert, att.apply);
     return node.id;
   }
 

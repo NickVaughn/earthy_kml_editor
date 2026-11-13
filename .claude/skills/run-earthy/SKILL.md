@@ -68,6 +68,7 @@ tmux send-keys -t earthy 'quit' Enter; sleep 3; tmux kill-session -t earthy
 |---|---|
 | `launch [file.kml]` | start the built app with a throwaway settings profile, opening the file if given; waits for boot |
 | `open <file>` | open a KML/KMZ in the running app (as a double-click in the OS would) |
+| `menu <action>` | fire a native-menu action the page listens for (`new`, `save`, `addTileLayer`, `findPlace`, …) |
 | `ss [name]` | screenshot → `/tmp/earthy-shots/<name>.png` |
 | `gclick fx fy [right]` | click the globe at fractions of its area (`0.5 0.5` = centre) |
 | `gdbl fx fy` / `gmove fx fy` | double-click / hover the globe |

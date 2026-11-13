@@ -34,6 +34,7 @@ import {
 import type { KmlDocument } from '@renderer/model/document';
 import type { Position, Geometry, KmlNode } from '@renderer/model/types';
 import { tiledOverlayInfo, tileUrlTemplate } from '@renderer/model/overlays';
+import { tileLayerInfo } from '@renderer/model/tileLayers';
 import {
   buildScene,
   dotImage,
@@ -333,6 +334,24 @@ export class GlobeRenderer {
 
       const b = node.overlay!.box!;
       const rectangle = Rectangle.fromDegrees(b.west, b.south, b.east, b.north);
+
+      // A web tile layer streams from its server. Cesium stretches the deepest
+      // tiles when zoomed in past maximumLevel, shrinks the shallowest when
+      // zoomed out past minimumLevel, and fills a missing tile from its parent.
+      const web = tileLayerInfo(node);
+      if (web) {
+        const provider = new UrlTemplateImageryProvider({
+          url: web.url,
+          rectangle,
+          minimumLevel: web.minZoom,
+          maximumLevel: web.maxZoom,
+        });
+        const layer = this.viewer.imageryLayers.addImageryProvider(provider);
+        layer.show = doc.isEffectivelyVisible(node);
+        layer.alpha = overlayAlpha(node);
+        this.overlayLayers.set(id, { layer, href: node.overlay!.href! });
+        continue;
+      }
 
       // A tiled raster renders from the local pyramid rather than one image.
       const tiles = tiledOverlayInfo(node);
