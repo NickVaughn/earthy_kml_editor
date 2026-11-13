@@ -7,7 +7,8 @@ import { TILE_MAX_ZOOM_KEY, TILE_MIN_ZOOM_KEY } from './overlays';
  * readers see an overlay with an unloadable icon. Nothing is embedded, so the
  * layer saves in plain KML and reloads from the server next time.
  *
- * Tiles are Web Mercator (the XYZ / "GoogleMapsCompatible" grid). The template
+ * Tiles are Web Mercator (the XYZ / "GoogleMapsCompatible" grid) unless the
+ * layer says otherwise (see `grid`). The template
  * uses Cesium's placeholders: `{z}` `{x}` `{y}`, `{reverseY}` for TMS rows,
  * `{s}` for a/b/c subdomains, or `{westProjected}` … for a WMS-style bbox.
  */
@@ -15,6 +16,7 @@ import { TILE_MAX_ZOOM_KEY, TILE_MIN_ZOOM_KEY } from './overlays';
 export const TILE_URL_KEY = 'earthy:tileUrl';
 /** Where the template came from (a WMTS capabilities URL), for reference. */
 export const TILE_SOURCE_KEY = 'earthy:tileSource';
+export const TILE_GRID_KEY = 'earthy:tileGrid';
 
 /** Web Mercator's latitude limit. */
 export const MERCATOR_MAX_LAT = 85.0511287798;
@@ -28,6 +30,11 @@ export interface TileLayerSpec {
   /** [west, south, east, north] in degrees; the whole world if absent. */
   bounds?: [number, number, number, number];
   source?: string;
+  /**
+   * The tile grid: Web Mercator unless 'geographic' (plain lon/lat, two tiles
+   * across at level 0), which is what a WMS without Web Mercator is asked for.
+   */
+  grid?: 'geographic';
 }
 
 const BBOX_PLACEHOLDER = /\{(west|south|east|north)(Projected|Degrees)?\}/;
@@ -76,6 +83,7 @@ export function tileLayerInfo(node: KmlNode): TileLayerSpec | null {
   };
   const source = value(TILE_SOURCE_KEY);
   if (source) spec.source = source;
+  if (value(TILE_GRID_KEY) === 'geographic') spec.grid = 'geographic';
   const b = node.overlay?.box;
   if (b) spec.bounds = [b.west, b.south, b.east, b.north];
   return spec;
@@ -96,8 +104,17 @@ export function tileLayerExtendedData(spec: TileLayerSpec): {
     { name: TILE_MAX_ZOOM_KEY, value: String(spec.maxZoom) },
   ];
   if (spec.source) fields.push({ name: TILE_SOURCE_KEY, value: spec.source });
+  if (spec.grid) fields.push({ name: TILE_GRID_KEY, value: spec.grid });
   const raw = `<ExtendedData>${fields
     .map((f) => `<Data name="${f.name}"><value>${esc(f.value)}</value></Data>`)
     .join('')}</ExtendedData>`;
   return { raw, fields };
+}
+
+/**
+ * Capabilities served over https often advertise http:// endpoints (the server
+ * sits behind a proxy and doesn't know). Follow the document's own scheme.
+ */
+export function matchScheme(url: string, source: string): string {
+  return /^https:/i.test(source) && /^http:/i.test(url) ? `https:${url.slice(5)}` : url;
 }

@@ -1,7 +1,10 @@
 import { childElements, childText, childrenNamed, firstChild, localName, parseXml } from './dom';
-import { MERCATOR_MAX_LAT, type TileLayerSpec } from './tileLayers';
+import { MERCATOR_MAX_LAT, matchScheme, type TileLayerSpec } from './tileLayers';
+import { readWmsLayers } from './wms';
 
 /**
+ * Service capabilities (WMTS here, WMS in wms.ts) reduced to tile templates.
+ *
  * Read a WMTS capabilities document far enough to turn each layer into a plain
  * `{z}/{x}/{y}` tile template, which is all the globe needs to stream it.
  *
@@ -10,9 +13,11 @@ import { MERCATOR_MAX_LAT, type TileLayerSpec } from './tileLayers';
  * wide. Layers offered only in other grids are reported with the reason.
  */
 
-export interface WmtsLayer {
+/** One layer of a WMTS or WMS service. */
+export interface ServiceLayer {
   id: string;
   title: string;
+  service: 'WMTS' | 'WMS';
   /** How to stream it, or absent when the layer can't be used (see `error`). */
   tiles?: TileLayerSpec;
   error?: string;
@@ -88,9 +93,9 @@ function readLayer(
   sets: Map<string, MatrixSet | null>,
   kvp: string | null,
   source: string,
-): WmtsLayer {
+): ServiceLayer {
   const id = childText(el, 'Identifier') ?? '';
-  const layer: WmtsLayer = { id, title: childText(el, 'Title') || id };
+  const layer: ServiceLayer = { id, title: childText(el, 'Title') || id, service: 'WMTS' };
 
   // The first Web Mercator matrix set the layer is published in.
   const link = childrenNamed(el, 'TileMatrixSetLink').find(
@@ -159,7 +164,7 @@ function readLayer(
   }
 
   const tiles: TileLayerSpec = {
-    url,
+    url: matchScheme(url, source),
     minZoom: Math.min(...levels),
     maxZoom: Math.max(...levels),
     source,
@@ -179,18 +184,28 @@ function readLayer(
   return layer;
 }
 
-/**
- * The layers of a WMTS capabilities document. `source` is the URL it was read
- * from, recorded on each layer. Throws if the text isn't WMTS capabilities.
- */
-export function parseWmtsCapabilities(xml: string, source: string): WmtsLayer[] {
-  const root = parseXml(xml).documentElement as Element | null;
-  const contents = root && localName(root) === 'Capabilities' ? firstChild(root, 'Contents') : null;
-  if (!root || !contents) throw new Error('Not a WMTS capabilities document');
+/** The layers of a parsed WMTS capabilities document. */
+function readWmtsLayers(root: Element, source: string): ServiceLayer[] {
+  const contents = firstChild(root, 'Contents');
+  if (!contents) throw new Error('Not a WMTS capabilities document');
   const sets = new Map<string, MatrixSet | null>();
   for (const s of childrenNamed(contents, 'TileMatrixSet')) {
     sets.set(childText(s, 'Identifier') ?? '', readMatrixSet(s));
   }
   const kvp = kvpEndpoint(root);
   return childrenNamed(contents, 'Layer').map((l) => readLayer(l, sets, kvp, source));
+}
+
+/**
+ * The layers of a WMTS or WMS capabilities document. `source` is the URL it
+ * was read from, recorded on each layer. Throws if the text is neither.
+ */
+export function parseCapabilities(xml: string, source: string): ServiceLayer[] {
+  const root = parseXml(xml).documentElement as Element | null;
+  const tag = root ? localName(root) : '';
+  if (root && tag === 'Capabilities') return readWmtsLayers(root, source);
+  if (root && (tag === 'WMS_Capabilities' || tag === 'WMT_MS_Capabilities')) {
+    return readWmsLayers(root, source);
+  }
+  throw new Error('Not a WMTS or WMS capabilities document');
 }
