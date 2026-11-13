@@ -137,6 +137,11 @@ interface AppState {
     dataUrl: string;
     box: LatLonBox;
   }): string | null;
+  /** Add a web tile layer (XYZ template / WMTS); returns its node id. */
+  addTileLayer(o: {
+    name: string;
+    tiles: import('@renderer/model/tileLayers').TileLayerSpec;
+  }): string;
   /** Add a large raster as a tiled GroundOverlay backed by a local pyramid. */
   addTiledOverlay(o: {
     name: string;
@@ -473,6 +478,19 @@ export const useStore = create<AppState>((set, get) => {
       }
       const parentId = get().selection[0] ?? doc.root.id;
       const id = doc.addGroundOverlay(parentId, o);
+      set({ selection: [id], activeDocId: doc.id });
+      if (!newDoc) bumpScene();
+      return id;
+    },
+    addTileLayer(o) {
+      let doc = get().selection[0] ? get().docOf(get().selection[0]) : get().activeDoc();
+      let newDoc = false;
+      if (!doc) {
+        doc = get().newDocument();
+        newDoc = true;
+      }
+      const parentId = get().selection[0] ?? doc.root.id;
+      const id = doc.addTileLayer(parentId, o);
       set({ selection: [id], activeDocId: doc.id });
       if (!newDoc) bumpScene();
       return id;

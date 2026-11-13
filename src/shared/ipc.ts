@@ -151,6 +151,8 @@ export interface Api {
     query: string,
     source: import('./geocode').GeocodeSource,
   ): Promise<import('./geocode').GeocodeResponse>;
+  /** Fetch a small text document (WMTS capabilities) in main, past CORS. */
+  fetchText(url: string): Promise<string>;
   /** Native file drag-drop onto the window; yields absolute paths. */
   onFileDrop(cb: (paths: string[]) => void): () => void;
   /** Tell main whether the document has unsaved changes (for the quit guard). */

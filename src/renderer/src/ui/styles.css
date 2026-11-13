@@ -665,6 +665,24 @@ body,
   border-radius: 2px;
   display: inline-block;
 }
+/* Add Tile Layer dialog */
+.modal .insp-row > .tile-zoom-to {
+  width: auto;
+}
+.modal-summary code {
+  color: var(--text);
+}
+.modal-summary.tile-error {
+  color: #ff8a80;
+}
+.modal .insp-row > button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;

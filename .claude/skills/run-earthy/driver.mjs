@@ -77,6 +77,14 @@ const COMMANDS = {
     console.log('opened', abs);
   },
 
+  /** menu <action> — fire a native-menu action (new, save, addTileLayer, findPlace, …). */
+  async menu(action) {
+    need();
+    await app.evaluate(({ BrowserWindow }, a) => BrowserWindow.getAllWindows()[0].webContents.send('menu-action', a), action);
+    await sleep(500);
+    console.log('menu', action);
+  },
+
   /** ss [name] — screenshot of the window. */
   async ss(name) {
     need();

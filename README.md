@@ -4,7 +4,7 @@ A lean, cross-platform desktop **KML/KMZ viewer and editor** — a small,
 self-hostable alternative for looking at and editing placemarks, paths, and
 polygons on a 3D globe.
 
-> ⚠️ **Work in progress.** This is early software (currently `v0.9.0`). Editing
+> ⚠️ **Work in progress.** This is early software (currently `v0.10.0`). Editing
 > is functional, but expect rough edges, missing features, and breaking changes.
 > There are no stability or data-safety guarantees yet — keep backups of any KML
 > you care about.
@@ -60,6 +60,12 @@ It works and it's tested, but it's a hobby/learning artifact first.
   being scaled down — saved as a KML super-overlay, so a tiled raster stays
   portable and opens in Google Earth at full detail. Long imports show progress
   and can be cancelled.
+- **Web tile layers** (File ▸ Add Tile Layer…). Point at an XYZ tile URL
+  (`{z}`/`{x}`/`{y}`, or `{-y}` for TMS) or a WMTS capabilities file and the
+  tileset streams as a layer in the list, stacked in list order like any other
+  overlay. Only the URL is stored, so it saves in plain KML and reloads next
+  time. Tiles must be Web Mercator; past the tileset's zoom range the nearest
+  level is stretched to fit.
 - **Optional 3D terrain** — real relief toggled live from the Terrain menu.
   AWS Terrarium tiles are built in and keyless, with decode-time repair of the
   source's coastal defects and optional sea-floor rendering; with a free

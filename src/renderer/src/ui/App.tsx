@@ -17,6 +17,7 @@ import { FIND_PLACE_EVENT } from './PlaceSearch';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
+import { TileLayerDialog } from './TileLayerDialog';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { Balloon } from './Balloon';
@@ -78,6 +79,7 @@ export function App(): JSX.Element {
     y: number;
   } | null>(null);
   const [rasterChoice, setRasterChoice] = useState<RasterChoiceInfo | null>(null);
+  const [tileDialogOpen, setTileDialogOpen] = useState(false);
   const rasterChoiceResolve = useRef<((c: RasterChoice) => void) | null>(null);
 
   /** Show the tile/resample dialog and wait for the answer. */
@@ -650,6 +652,7 @@ export function App(): JSX.Element {
       else if (action === 'saveAs') doSave(true);
       else if (action === 'undo') useStore.getState().undo();
       else if (action === 'redo') useStore.getState().redo();
+      else if (action === 'addTileLayer') setTileDialogOpen(true);
       else if (action === 'findPlace') window.dispatchEvent(new Event(FIND_PLACE_EVENT));
     });
     const offOpen = window.api.onOpenRequested((path) => openPath(path));
@@ -768,6 +771,16 @@ export function App(): JSX.Element {
             setRasterChoice(null);
             rasterChoiceResolve.current?.(c);
             rasterChoiceResolve.current = null;
+          }}
+        />
+      )}
+      {tileDialogOpen && (
+        <TileLayerDialog
+          onClose={() => setTileDialogOpen(false)}
+          onAdd={(layer) => {
+            setTileDialogOpen(false);
+            useStore.getState().addTileLayer(layer);
+            if (layer.tiles.bounds) globeRef.current?.flyToBounds(layer.tiles.bounds);
           }}
         />
       )}
