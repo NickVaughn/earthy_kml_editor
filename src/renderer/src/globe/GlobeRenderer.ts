@@ -110,6 +110,12 @@ export class GlobeRenderer {
   private labelsLayer: ImageryLayer | null = null;
   /** Imagery layers for GroundOverlay nodes, by node id. */
   private overlayLayers = new Map<string, { layer: ImageryLayer; href: string }>();
+  /**
+   * Copies of the overlay (and label) layers draped on the photorealistic
+   * mesh, which otherwise hides everything drawn on the globe beneath it. A
+   * layer belongs to one collection, so each copy shares only the provider.
+   */
+  private meshLayers = new Map<string, { layer: ImageryLayer; source: ImageryLayer }>();
   /** Overlay ids whose image is currently decoding (guards concurrent syncs). */
   private overlayPending = new Set<string>();
 
@@ -255,18 +261,69 @@ export class GlobeRenderer {
       this.labelsLayer = null;
     }
     if (provider) this.labelsLayer = this.viewer.imageryLayers.addImageryProvider(provider);
+    this.syncMeshLayers();
     this.viewer.scene.requestRender();
   }
 
   /** Stream (or tear down) a photorealistic 3D tileset over the globe. */
   setPhotorealistic(tileset: Cesium3DTileset | null): void {
     if (this.photoTiles) {
-      this.viewer.scene.primitives.remove(this.photoTiles); // destroys it
+      this.viewer.scene.primitives.remove(this.photoTiles); // destroys it and its layers
       this.photoTiles = null;
+      this.meshLayers.clear();
     }
     if (tileset) {
       this.photoTiles = tileset;
       this.viewer.scene.primitives.add(tileset);
+    }
+    this.syncMeshLayers();
+  }
+
+  /** The overlay layers in layer-list order, then the labels: bottom to top. */
+  private overlayStack(): { id: string; layer: ImageryLayer }[] {
+    const stack: { id: string; layer: ImageryLayer }[] = [];
+    for (const doc of this.docs) {
+      for (const node of doc.walk()) {
+        const entry = node.type === 'GroundOverlay' ? this.overlayLayers.get(node.id) : undefined;
+        if (entry) stack.push({ id: node.id, layer: entry.layer });
+      }
+    }
+    if (this.labelsLayer) stack.push({ id: '\0labels', layer: this.labelsLayer });
+    return stack;
+  }
+
+  /**
+   * Keep the photorealistic mesh's draped copies in step with the globe's
+   * overlay layers: same set, order, visibility and opacity. A no-op without
+   * the mesh.
+   */
+  private syncMeshLayers(): void {
+    const tileset = this.photoTiles;
+    if (!tileset) return;
+    const collection = tileset.imageryLayers;
+    const stack = this.overlayStack();
+    const live = new Map(stack.map((s) => [s.id, s.layer]));
+    for (const [id, entry] of [...this.meshLayers]) {
+      if (live.get(id) !== entry.source) {
+        collection.remove(entry.layer, true);
+        this.meshLayers.delete(id);
+      }
+    }
+    const ordered: ImageryLayer[] = [];
+    for (const { id, layer: source } of stack) {
+      let entry = this.meshLayers.get(id);
+      if (!entry) {
+        entry = { layer: new ImageryLayer(source.imageryProvider), source };
+        collection.add(entry.layer);
+        this.meshLayers.set(id, entry);
+      }
+      entry.layer.show = source.show;
+      entry.layer.alpha = source.alpha;
+      ordered.push(entry.layer);
+    }
+    const at = ordered.map((l) => collection.indexOf(l));
+    if (!at.every((v, i) => i === 0 || at[i - 1] < v)) {
+      for (const layer of ordered) collection.raiseToTop(layer);
     }
   }
 
@@ -420,18 +477,13 @@ export class GlobeRenderer {
    * The place-name labels, if shown, go last, above every overlay.
    */
   private stackOverlays(): void {
-    const layers: ImageryLayer[] = [];
-    for (const doc of this.docs) {
-      for (const node of doc.walk()) {
-        const entry = node.type === 'GroundOverlay' ? this.overlayLayers.get(node.id) : undefined;
-        if (entry) layers.push(entry.layer);
-      }
-    }
-    if (this.labelsLayer) layers.push(this.labelsLayer);
+    const layers = this.overlayStack().map((s) => s.layer);
     const collection = this.viewer.imageryLayers;
     const at = layers.map((l) => collection.indexOf(l));
-    if (at.every((v, i) => i === 0 || at[i - 1] < v)) return;
-    for (const layer of layers) collection.raiseToTop(layer);
+    if (!at.every((v, i) => i === 0 || at[i - 1] < v)) {
+      for (const layer of layers) collection.raiseToTop(layer);
+    }
+    this.syncMeshLayers();
   }
 
   /** Fly to a raster overlay's extent. */
