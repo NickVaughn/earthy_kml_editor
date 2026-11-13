@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { Tree, type NodeApi, type NodeRendererProps, type TreeApi } from 'react-arborist';
 import { useStore } from '@renderer/state/store';
+import { CLIPBOARD_EVENT } from '@renderer/input/typing';
 import type { KmlDocument } from '@renderer/model/document';
 import type { Geometry, KmlNode } from '@renderer/model/types';
 import { kmlToCss } from '@renderer/model/colors';
@@ -424,18 +425,32 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           e.preventDefault();
           confirmRemove(s.selection);
         }
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') s.copy(s.selection);
-      else if ((e.metaKey || e.ctrlKey) && e.key === 'x') s.cut(s.selection);
-      else if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+      }
+    },
+    [confirmRemove, st],
+  );
+
+  // Cut/copy/paste of features come from the Edit menu (which owns the keys),
+  // and apply only while the tree has the focus.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onClipboard = (e: Event): void => {
+      if (!panelRef.current?.contains(document.activeElement)) return;
+      const action = (e as CustomEvent<string>).detail;
+      const s = st.getState();
+      if (action === 'copy') s.copy(s.selection);
+      else if (action === 'cut') s.cut(s.selection);
+      else if (action === 'paste') {
         const t = containerTarget();
         if (t) s.paste(t);
       }
-    },
-    [containerTarget, confirmRemove, st],
-  );
+    };
+    window.addEventListener(CLIPBOARD_EVENT, onClipboard);
+    return () => window.removeEventListener(CLIPBOARD_EVENT, onClipboard);
+  }, [containerTarget, st]);
 
   return (
-    <div className="tree-panel" onKeyDown={onKeyDown} onClick={closeMenu}>
+    <div ref={panelRef} className="tree-panel" onKeyDown={onKeyDown} onClick={closeMenu}>
       <div className="tree-toolbar">
         <button
           title="New file"

@@ -17,6 +17,7 @@ import { FIND_PLACE_EVENT } from './PlaceSearch';
 import { TreePanel } from './TreePanel';
 import { ImportDialog } from './ImportDialog';
 import { HelpOverlay } from './HelpOverlay';
+import { CLIPBOARD_EVENT, isTypingTarget } from '@renderer/input/typing';
 import { TileLayerDialog } from './TileLayerDialog';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -653,7 +654,16 @@ export function App(): JSX.Element {
       else if (action === 'undo') useStore.getState().undo();
       else if (action === 'redo') useStore.getState().redo();
       else if (action === 'addTileLayer') setTileDialogOpen(true);
-      else if (action === 'findPlace') window.dispatchEvent(new Event(FIND_PLACE_EVENT));
+      else if (
+        action === 'cut' ||
+        action === 'copy' ||
+        action === 'paste' ||
+        action === 'selectAll'
+      ) {
+        // In a text field these edit the text; elsewhere they act on features.
+        if (isTypingTarget(document.activeElement)) window.api.editCommand(action);
+        else window.dispatchEvent(new CustomEvent(CLIPBOARD_EVENT, { detail: action }));
+      } else if (action === 'findPlace') window.dispatchEvent(new Event(FIND_PLACE_EVENT));
     });
     const offOpen = window.api.onOpenRequested((path) => openPath(path));
     const offDrop = window.api.onFileDrop(async (paths) => {

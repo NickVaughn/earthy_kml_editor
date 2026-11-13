@@ -55,6 +55,7 @@ const api: Api = {
   },
   geocode: (query, source) => ipcRenderer.invoke('geocode', query, source),
   fetchText: (url) => ipcRenderer.invoke('fetch-text', url),
+  editCommand: (command) => ipcRenderer.send('edit-command', command),
   setDirty: (dirty) => ipcRenderer.send('set-dirty', dirty),
   inspectVector: (path, csv) => ipcRenderer.invoke('gdal-inspect-vector', path, csv),
   convertVector: (path, layerName, csv) =>

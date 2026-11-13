@@ -95,6 +95,8 @@ export interface GeoidGrid {
   values: Float32Array;
 }
 
+export type EditCommand = 'cut' | 'copy' | 'paste' | 'selectAll';
+
 export interface Api {
   openFileDialog(): Promise<OpenedFile | null>;
   /** Open a specific path (drag-drop, file association, recent files). */
@@ -155,6 +157,8 @@ export interface Api {
   fetchText(url: string): Promise<string>;
   /** Native file drag-drop onto the window; yields absolute paths. */
   onFileDrop(cb: (paths: string[]) => void): () => void;
+  /** Run a text-editing command on the focused field (Edit menu). */
+  editCommand(command: EditCommand): void;
   /** Tell main whether the document has unsaved changes (for the quit guard). */
   setDirty(dirty: boolean): void;
 

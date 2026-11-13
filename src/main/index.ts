@@ -367,6 +367,15 @@ function buildMenu(): void {
       submenu: [
         { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => sendMenu('undo') },
         { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', click: () => sendMenu('redo') },
+        { type: 'separator' },
+        // Not the stock roles: these keys mean "the text" in a field and "the
+        // features" in the layer tree, so the renderer decides by focus and
+        // asks for an edit-command when it is a field. macOS only delivers
+        // them to text fields at all through a menu item.
+        { label: 'Cut', accelerator: 'CmdOrCtrl+X', click: () => sendMenu('cut') },
+        { label: 'Copy', accelerator: 'CmdOrCtrl+C', click: () => sendMenu('copy') },
+        { label: 'Paste', accelerator: 'CmdOrCtrl+V', click: () => sendMenu('paste') },
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', click: () => sendMenu('selectAll') },
       ],
     },
     {
@@ -476,6 +485,12 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.on('edit-command', (e, command: string) => {
+    if (command === 'cut') e.sender.cut();
+    else if (command === 'copy') e.sender.copy();
+    else if (command === 'paste') e.sender.paste();
+    else if (command === 'selectAll') e.sender.selectAll();
+  });
   ipcMain.on('set-dirty', (_e, dirty: boolean) => {
     isDirty = dirty;
   });
