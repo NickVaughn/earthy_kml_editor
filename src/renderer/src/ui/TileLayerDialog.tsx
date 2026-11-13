@@ -6,7 +6,7 @@ import {
   tileTemplateError,
   type TileLayerSpec,
 } from '@renderer/model/tileLayers';
-import { parseWmtsCapabilities, type WmtsLayer } from '@renderer/model/wmts';
+import { parseCapabilities, type ServiceLayer } from '@renderer/model/wmts';
 
 /** A zoom field's value as a level, or null if it isn't one. */
 function zoomOf(text: string): number | null {
@@ -21,7 +21,7 @@ function hostOf(url: string): string {
 
 /**
  * File ▸ Add Tile Layer…: point at a web tileset, either a URL template with
- * {z}/{x}/{y} placeholders or a WMTS capabilities document, and add it to the
+ * {z}/{x}/{y} placeholders or a WMTS/WMS capabilities document, and add it to the
  * layer list as a streamed overlay.
  */
 export function TileLayerDialog({
@@ -36,7 +36,7 @@ export function TileLayerDialog({
   const [minZoom, setMinZoom] = useState('0');
   const [maxZoom, setMaxZoom] = useState(String(DEFAULT_MAX_ZOOM));
   /** Layers read from a capabilities document, and which is chosen. */
-  const [layers, setLayers] = useState<WmtsLayer[] | null>(null);
+  const [layers, setLayers] = useState<ServiceLayer[] | null>(null);
   const [layerId, setLayerId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +64,15 @@ export function TileLayerDialog({
     setBusy(true);
     setError(null);
     try {
-      const found = parseWmtsCapabilities(await window.api.fetchText(trimmed), trimmed);
+      let found: ServiceLayer[];
+      try {
+        found = parseCapabilities(await window.api.fetchText(trimmed), trimmed);
+      } catch (err) {
+        // A bare WMS endpoint: ask it for its capabilities.
+        if (/[?&]request=/i.test(trimmed)) throw err;
+        const ask = `${trimmed}${trimmed.includes('?') ? '&' : '?'}SERVICE=WMS&REQUEST=GetCapabilities`;
+        found = parseCapabilities(await window.api.fetchText(ask), ask);
+      }
       const first = found.find((l) => l.tiles);
       if (!first) {
         const why = found[0]?.error ?? 'it lists no layers';
@@ -124,8 +132,8 @@ export function TileLayerDialog({
         <div className="modal-head">Add Tile Layer</div>
         <div className="modal-summary">
           A tile URL with <code>{'{z}'}</code>, <code>{'{x}'}</code> and <code>{'{y}'}</code>{' '}
-          placeholders, or the URL of a WMTS capabilities file. Tiles must be Web Mercator. Use{' '}
-          <code>{'{-y}'}</code> for TMS (bottom-up) rows.
+          placeholders, or the URL of a WMTS or WMS service (its capabilities document). Tiles
+          must be Web Mercator. Use <code>{'{-y}'}</code> for TMS (bottom-up) rows.
         </div>
 
         <label className="insp-row">
@@ -144,7 +152,7 @@ export function TileLayerDialog({
           <div className="insp-row">
             <span />
             <button type="button" disabled={busy} onClick={() => void readCapabilities()}>
-              {busy ? 'Reading…' : 'Read WMTS capabilities'}
+              {busy ? 'Reading…' : 'Read service layers'}
             </button>
           </div>
         )}
@@ -191,7 +199,9 @@ export function TileLayerDialog({
         )}
         {layer?.tiles && (
           <div className="modal-summary">
-            Zoom {layer.tiles.minZoom}–{layer.tiles.maxZoom}
+            {layer.service === 'WMS'
+              ? 'WMS — drawn by the server at every zoom'
+              : `WMTS · zoom ${layer.tiles.minZoom}–${layer.tiles.maxZoom}`}
             {layer.tiles.bounds &&
               ` · ${layer.tiles.bounds.map((v) => v.toFixed(3)).join(', ')} (W, S, E, N)`}
             {skipped.length > 0 &&

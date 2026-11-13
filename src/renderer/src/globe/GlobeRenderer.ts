@@ -24,6 +24,7 @@ import {
   Material,
   KeyboardEventModifier,
   ImageryLayer,
+  GeographicTilingScheme,
   SingleTileImageryProvider,
   UrlTemplateImageryProvider,
   Rectangle,
@@ -342,6 +343,7 @@ export class GlobeRenderer {
       if (web) {
         const provider = new UrlTemplateImageryProvider({
           url: web.url,
+          tilingScheme: web.grid === 'geographic' ? new GeographicTilingScheme() : undefined,
           rectangle,
           minimumLevel: web.minZoom,
           maximumLevel: web.maxZoom,

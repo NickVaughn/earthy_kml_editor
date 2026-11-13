@@ -785,12 +785,8 @@ export class KmlDocument {
     if (parent && !this.isContainer(parent)) parent = this.parentOf(parent.id) ?? undefined;
     const container = parent ?? this.data.root;
 
-    const [west, south, east, north] = o.tiles.bounds ?? [
-      -180,
-      -MERCATOR_MAX_LAT,
-      180,
-      MERCATOR_MAX_LAT,
-    ];
+    const maxLat = o.tiles.grid === 'geographic' ? 90 : MERCATOR_MAX_LAT;
+    const [west, south, east, north] = o.tiles.bounds ?? [-180, -maxLat, 180, maxLat];
     const node: KmlNode = {
       id: nextId(),
       type: 'GroundOverlay',

@@ -81,7 +81,7 @@ const COMMANDS = {
   async menu(action) {
     need();
     await app.evaluate(({ BrowserWindow }, a) => BrowserWindow.getAllWindows()[0].webContents.send('menu-action', a), action);
-    await sleep(500);
+    await sleep(1500);
     console.log('menu', action);
   },
 
