@@ -498,7 +498,9 @@ export function TreePanel({ onFlyTo, onOpenBalloon, onSave, onSaveAs }: Props): 
           disableDrop={disableDrop}
           onRename={onRename}
           onActivate={(node) => {
-            onFlyTo(node.data.id);
+            // An overlay's extent can be the whole world; selecting one should
+            // not throw the view out there. "Zoom to" in its menu still does.
+            if (node.data.type !== 'GroundOverlay') onFlyTo(node.data.id);
             if (node.data.type === 'Placemark') onOpenBalloon(node.data.id);
           }}
         >
