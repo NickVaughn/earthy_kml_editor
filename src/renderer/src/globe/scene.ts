@@ -35,6 +35,20 @@ import { kmlToCesium } from './cesiumColor';
 import { DrapeBatcher } from './drapeBatches';
 import { InstanceShow, instanceIds, nodeIdOf } from './instanceShow';
 
+// A classification primitive built synchronously needs Cesium's approximate
+// terrain heights already loaded, and throws out of the render loop if they
+// are not (an asynchronous one loads them itself). Start the load now; until
+// it lands, small batches build asynchronously like large ones.
+let terrainHeightsReady = false;
+void GroundPrimitive.initializeTerrainHeights().then(
+  () => {
+    terrainHeightsReady = true;
+  },
+  () => undefined,
+);
+/** Whether a draped batch of `n` instances should build in a worker. */
+const drapeAsync = (n: number): boolean => n > 200 || !terrainHeightsReady;
+
 // Defaults for features without an explicit style (configurable later).
 const DEFAULT_LINE = Color.WHITE;
 const DEFAULT_FILL = Color.WHITE.withAlpha(0.5);
@@ -701,7 +715,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       // the batch table, which survives release. Keeping millions of input
       // vertices resident was pure overhead.
       releaseGeometryInstances: true,
-      asynchronous: instances.length > 200,
+      asynchronous: drapeAsync(instances.length),
     });
     groundPrimitives.add(prim);
     // Register toggles from the ids alone: holding the instances in these
@@ -717,7 +731,7 @@ export function buildScene(viewer: Viewer, docs: KmlDocument[]): SceneHandle {
       geometryInstances: chunk.instances,
       appearance: new PolylineColorAppearance(),
       releaseGeometryInstances: true,
-      asynchronous: chunk.instances.length > 200,
+      asynchronous: drapeAsync(chunk.instances.length),
     });
     groundPrimitives.add(prim);
     for (const id of chunk.instances.map((i) => i.id as string)) {
